@@ -1,0 +1,501 @@
+<?php
+
+namespace App\Http\Controllers\Web;
+
+use App\Models\Alamat;
+use App\Models\Keranjang;
+use App\Models\Pembayaran;
+use App\Models\ProdukVarian;
+use App\Models\Transaksi;
+use App\Models\TransaksiItem;
+use App\Models\User;
+use App\Notifications\AdminPembelianBaru;
+use App\Services\Shipping\KomerceOngkirService;
+use Illuminate\Http\Request;
+use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Sentry\Laravel\Facade as Sentry;
+
+class CheckoutController extends Controller
+{
+    public function index()
+    {
+        $userId = Auth::id();
+
+        $keranjangs = Keranjang::with(['produk', 'varian'])
+            ->where('user_id', $userId)
+            ->get();
+
+        if ($keranjangs->isEmpty()) {
+            return redirect()->route('keranjang')->with('flash', [
+                'type' => 'warning',
+                'action' => 'empty_cart',
+                'entity' => 'Keranjang',
+                'timer' => 2500,
+            ]);
+        }
+
+        $total = $keranjangs->sum(
+            fn($item) =>
+            ((int) optional($item->produk)->harga) * (int) $item->jumlah_produk
+        );
+
+        $alamats = Alamat::where('user_id', $userId)
+            ->orderByDesc('is_default')
+            ->get();
+
+        return view('web.Checkout.checkout', compact('keranjangs', 'total', 'alamats'));
+    }
+
+    public function store(Request $request, KomerceOngkirService $svc)
+    {
+        $userId = Auth::id();
+        if (!$userId) {
+            abort(403);
+        }
+
+        $request->validate([
+            'alamat_id' => ['required', 'integer', function ($attr, $val, $fail) use ($userId) {
+                if (!Alamat::where('id', $val)->where('user_id', $userId)->exists()) {
+                    $fail('Alamat tidak valid.');
+                }
+            }],
+            'metode_pembayaran' => 'required|in:transfer,qris,midtrans',
+            'kurir_kode' => 'required|string',
+            'kurir_layanan' => 'required|string',
+        ]);
+
+        $keranjangs = Keranjang::with(['produk', 'varian'])
+            ->where('user_id', $userId)
+            ->get();
+
+        if ($keranjangs->isEmpty()) {
+            return redirect()->route('keranjang')->with('flash', [
+                'type' => 'warning',
+                'action' => 'empty_cart',
+                'entity' => 'Keranjang',
+                'timer' => 2500,
+            ]);
+        }
+
+        $totalWeight = 0;
+
+        foreach ($keranjangs as $item) {
+            $qty = (int) $item->jumlah_produk;
+            $berat = (int) data_get($item, 'varian.berat_gram', 0);
+
+            if ($berat <= 0) {
+                return back()->with('flash', [
+                    'type' => 'error',
+                    'action' => 'validation',
+                    'entity' => 'Produk',
+                    'detail' => 'Berat produk belum diisi: ' . (data_get($item, 'produk.nama_produk', 'unknown')),
+                ]);
+            }
+
+            $totalWeight += ($berat * $qty);
+        }
+
+        if ($totalWeight < 1) {
+            $totalWeight = 1;
+        }
+
+        try {
+            return DB::transaction(function () use ($request, $userId, $keranjangs, $svc, $totalWeight) {
+                $subtotal = 0;
+
+                foreach ($keranjangs as $item) {
+                    $subtotal += ((int) optional($item->produk)->harga) * (int) $item->jumlah_produk;
+                }
+
+                $kode = 'TRX-' . strtoupper(uniqid());
+
+                $alamat = Alamat::where('id', $request->alamat_id)
+                    ->where('user_id', $userId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                $originId = (int) config('services.shop.origin_id');
+                $courier = strtolower(trim($request->kurir_kode));
+                $service = trim($request->kurir_layanan);
+
+                $ongkir = null;
+                $selectedEtd = null;
+                $selectedService = null;
+
+                if ($courier === 'pickup' || strtoupper($service) === 'PICKUP') {
+                    $ongkir = 0;
+                    $selectedService = 'PICKUP';
+                    $selectedEtd = '-';
+                } else {
+                    if ($alamat->destination_id) {
+                        $result = $svc->calculateDomesticCost(
+                            $originId,
+                            (int) $alamat->destination_id,
+                            (int) $totalWeight,
+                            $courier
+                        );
+
+                        if (!empty($result['success'])) {
+                            $options = data_get($result, 'data.data', data_get($result, 'data', []));
+                            [$selectedCost, $selectedEtd, $selectedService] =
+                                $this->pickShippingFromOptions($options, $service);
+
+                            if ($selectedCost !== null) {
+                                $ongkir = (int) $selectedCost;
+                            }
+                        }
+                    }
+
+                    if ($ongkir === null) {
+                        $fallback = $this->fallbackShippingOptions(
+                            $alamat->destination_id
+                                ? 'Server ongkir sedang gangguan. Menggunakan ongkir fallback.'
+                                : 'Alamat belum punya destination_id. Menggunakan ongkir fallback.',
+                            $courier
+                        );
+
+                        if (empty($fallback['success'])) {
+                            throw new \Exception($fallback['message'] ?? 'Gagal menghitung ongkir');
+                        }
+
+                        $fallbackOptions = data_get($fallback, 'data.data', []);
+                        [$selectedCost, $selectedEtd, $selectedService] =
+                            $this->pickShippingFromOptions($fallbackOptions, $service);
+
+                        if ($selectedCost === null && isset($fallbackOptions[0])) {
+                            $first = $fallbackOptions[0];
+                            $selectedService = (string) ($first['service'] ?? 'FLAT');
+
+                            $cost = data_get($first, 'cost', 0);
+                            if (is_array($cost)) {
+                                $selectedCost = (int) data_get($cost, '0.value', 0);
+                                $selectedEtd = (string) data_get($cost, '0.etd', '');
+                            } else {
+                                $selectedCost = (int) $cost;
+                                $selectedEtd = (string) data_get($first, 'etd', null);
+                            }
+                        }
+
+                        $ongkir = (int) ($selectedCost ?? 0);
+                    }
+                }
+
+                $grandTotal = $subtotal + (int) $ongkir;
+
+                $transaksi = Transaksi::create([
+                    'kode_transaksi' => $kode,
+                    'midtrans_order_id' => $request->metode_pembayaran === 'midtrans' ? $kode : null,
+                    'user_id' => $userId,
+
+                    'alamat_id' => $alamat->id,
+
+                    'shipping_nama_penerima' => $alamat->nama_penerima,
+                    'shipping_nama_pengirim' => $alamat->nama_pengirim,
+                    'shipping_no_telp' => $alamat->no_telp,
+                    'shipping_kota' => $alamat->kota,
+                    'shipping_kecamatan' => $alamat->kecamatan,
+                    'shipping_kelurahan' => $alamat->kelurahan,
+                    'shipping_provinsi' => $alamat->provinsi,
+                    'shipping_kode_pos' => $alamat->kode_pos,
+                    'shipping_alamat_lengkap' => $alamat->alamat_lengkap,
+                    'shipping_destination_id' => $alamat->destination_id,
+
+                    'metode_pembayaran' => $request->metode_pembayaran,
+                    'status_transaksi' => 'pending',
+
+                    'ongkir' => (int) $ongkir,
+                    'kurir_kode' => $courier,
+                    'kurir_layanan' => $selectedService ?: $service,
+                    'kurir_etd' => $selectedEtd ?: null,
+                    'kurir_etd_is_business_days' => true,
+
+                    'total_pembayaran' => $grandTotal,
+
+                    'payment_deadline' => now('Asia/Makassar')->addHour(),
+                ]);
+
+                foreach ($keranjangs as $item) {
+                    $jumlah = (int) $item->jumlah_produk;
+                    $produk = $item->produk;
+
+                    if (! $produk) {
+                        throw new \Exception('Produk pada keranjang tidak ditemukan');
+                    }
+
+                    $varian = ProdukVarian::lockForUpdate()
+                        ->find($item->varian_id);
+
+                    if (!$varian || $varian->stok < $jumlah) {
+                        throw new \Exception('Stok tidak mencukupi');
+                    }
+
+                    TransaksiItem::create([
+                        'transaksi_id' => $transaksi->id,
+                        'produk_id' => $produk->id,
+                        'produk_varian_id' => $item->varian_id,
+                        'nama_produk' => $produk->nama_produk,
+                        'warna' => $varian->warna ?? null,
+                        'ukuran' => $varian->ukuran ?? null,
+                        'qty' => $jumlah,
+                        'harga_satuan' => $produk->harga,
+                        'subtotal' => $produk->harga * $jumlah,
+                    ]);
+                }
+
+                if ($transaksi->metode_pembayaran === 'midtrans') {
+                    Pembayaran::create([
+                        'transaksi_id' => $transaksi->id,
+                        'metode_pembayaran' => 'midtrans',
+                        'total_pembayaran' => $transaksi->total_pembayaran,
+                        'status_pembayaran' => 'pending',
+                        'tanggal_pembayaran' => now(),
+                    ]);
+                }
+
+                Keranjang::where('user_id', $userId)->delete();
+                Cache::forget("cart_count:user:{$userId}");
+
+                DB::afterCommit(function () use ($transaksi): void {
+                    User::where('user_role', 'admin')
+                        ->cursor()
+                        ->each(fn (User $admin) => $admin->notify(new AdminPembelianBaru($transaksi)));
+                });
+
+                if ($transaksi->metode_pembayaran === 'midtrans') {
+                    return redirect()->route('midtrans.pay', $transaksi->id);
+                }
+
+                return redirect()->route('pembayaran.upload', $transaksi->id)
+                    ->with('flash', [
+                        'type' => 'success',
+                        'action' => 'create',
+                        'entity' => 'Transaksi',
+                    ]);
+            });
+        } catch (\Throwable $e) {
+            Sentry::withScope(function (\Sentry\State\Scope $scope) use ($request, $userId, $e): void {
+                $scope->setTag('module', 'checkout');
+                $scope->setTag('feature', 'checkout.store');
+                $scope->setExtra('user_id', $userId);
+                $scope->setExtra('alamat_id', $request->alamat_id);
+                $scope->setExtra('metode_pembayaran', $request->metode_pembayaran);
+                $scope->setExtra('kurir_kode', $request->kurir_kode);
+                $scope->setExtra('kurir_layanan', $request->kurir_layanan);
+                Sentry::captureException($e);
+            });
+
+            Log::error('CHECKOUT ERROR', [
+                'message' => $e->getMessage(),
+                'user_id' => $userId,
+                'alamat_id' => $request->alamat_id,
+                'metode_pembayaran' => $request->metode_pembayaran,
+                'kurir_kode' => $request->kurir_kode,
+                'kurir_layanan' => $request->kurir_layanan,
+            ]);
+
+            return back()->with('flash', [
+                'type' => 'error',
+                'action' => 'create',
+                'entity' => 'Transaksi',
+                'title' => 'Checkout Gagal',
+                'message' => 'Checkout gagal diproses. Silakan coba lagi.',
+            ]);
+        }
+    }
+
+    public function shippingOptions(Request $request, KomerceOngkirService $svc)
+    {
+        $userId = Auth::id();
+        if (!$userId) abort(403);
+
+        try {
+            $request->validate([
+                'alamat_id' => 'required|integer',
+                'courier' => 'required|string'
+            ]);
+
+            $alamat = Alamat::where('user_id', $userId)
+                ->where('id', $request->alamat_id)
+                ->firstOrFail();
+
+            $courier = strtolower(trim($request->courier));
+
+            // ✅ jika destination_id kosong → jangan matikan, beri fallback
+            if (!$alamat->destination_id) {
+                Sentry::withScope(function (\Sentry\State\Scope $scope) use ($userId, $alamat, $courier): void {
+                    $scope->setTag('module', 'checkout');
+                    $scope->setTag('feature', 'checkout.shippingOptions');
+                    $scope->setTag('shipping_mode', 'fallback');
+                    $scope->setExtra('user_id', $userId);
+                    $scope->setExtra('alamat_id', $alamat->id);
+                    $scope->setExtra('destination_id', $alamat->destination_id);
+                    $scope->setExtra('courier', $courier);
+                    Sentry::captureMessage('Alamat checkout belum memiliki destination_id, fallback ongkir dipakai', \Sentry\Severity::warning());
+                });
+
+                return response()->json(
+                    $this->fallbackShippingOptions('Alamat belum punya destination_id. Menggunakan ongkir fallback.', $courier)
+                );
+            }
+
+            $keranjangs = Keranjang::with(['produk', 'varian'])
+                ->where('user_id', $userId)
+                ->get();
+
+            if ($keranjangs->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Keranjang kosong'
+                ]);
+            }
+
+            $totalWeight = 0;
+
+            foreach ($keranjangs as $item) {
+                $qty = (int) $item->jumlah_produk;
+                $berat = (int) data_get($item, 'varian.berat_gram', 0);
+
+                if ($berat <= 0) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Berat produk belum diisi: ' . data_get($item, 'produk.nama_produk', 'unknown')
+                    ]);
+                }
+
+                $totalWeight += ($berat * $qty);
+            }
+
+            if ($totalWeight < 1) $totalWeight = 1;
+
+            $originId = (int) config('services.shop.origin_id');
+
+            $result = $svc->calculateDomesticCost(
+                $originId,
+                (int)$alamat->destination_id,
+                $totalWeight,
+                $courier
+            );
+
+            if (empty($result['success'])) {
+                Sentry::withScope(function (\Sentry\State\Scope $scope) use ($userId, $alamat, $courier, $totalWeight, $result): void {
+                    $scope->setTag('module', 'checkout');
+                    $scope->setTag('feature', 'checkout.shippingOptions');
+                    $scope->setTag('shipping_mode', 'fallback');
+                    $scope->setExtra('user_id', $userId);
+                    $scope->setExtra('alamat_id', $alamat->id);
+                    $scope->setExtra('destination_id', $alamat->destination_id);
+                    $scope->setExtra('courier', $courier);
+                    $scope->setExtra('total_weight', $totalWeight);
+                    $scope->setExtra('shipping_error_message', $result['message'] ?? 'unknown');
+                    Sentry::captureMessage('Checkout shippingOptions menggunakan fallback ongkir', \Sentry\Severity::warning());
+                });
+
+                return response()->json(
+                    $this->fallbackShippingOptions($result['message'] ?? 'Server ongkir sedang gangguan. Menggunakan ongkir fallback.', $courier)
+                );
+            }
+
+            $result['degraded'] = false;
+            return response()->json($result);
+        } catch (\Throwable $e) {
+            Sentry::withScope(function (\Sentry\State\Scope $scope) use ($request, $userId, $e): void {
+                $scope->setTag('module', 'checkout');
+                $scope->setTag('feature', 'checkout.shippingOptions');
+                $scope->setExtra('user_id', $userId);
+                $scope->setExtra('alamat_id', $request->alamat_id);
+                $scope->setExtra('courier', $request->courier);
+                Sentry::captureException($e);
+            });
+
+            Log::error('CHECKOUT SHIPPING OPTIONS ERROR', [
+                'message' => $e->getMessage(),
+                'user_id' => $userId,
+                'alamat_id' => $request->alamat_id,
+                'courier' => $request->courier,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat mengambil opsi pengiriman.'
+            ], 500);
+        }
+    }
+
+    /**
+     * Helper untuk memilih cost/etd/service dari options (format API maupun fallback).
+     * Return: [cost(int|null), etd(string|null), service(string|null)]
+     */
+    private function pickShippingFromOptions($options, string $service): array
+    {
+        if (!is_array($options)) return [null, null, null];
+
+        foreach ($options as $opt) {
+            if ((string)($opt['service'] ?? '') === (string)$service) {
+                $selectedService = (string) ($opt['service'] ?? '');
+
+                $cost = data_get($opt, 'cost', 0);
+                if (is_array($cost)) {
+                    $selectedCost = (int) data_get($cost, '0.value', 0);
+                    $selectedEtd  = (string) data_get($cost, '0.etd', '');
+                } else {
+                    $selectedCost = (int) $cost;
+                    $selectedEtd  = (string) data_get($opt, 'etd', '');
+                }
+
+                return [$selectedCost, $selectedEtd ?: null, $selectedService ?: null];
+            }
+        }
+
+        return [null, null, null];
+    }
+
+    /**
+     * Fallback ongkir saat API down / destination_id kosong.
+     * Format dibuat kompatibel dengan JS checkout kamu (json.data.data).
+     */
+    private function fallbackShippingOptions(string $msg, string $courier): array
+    {
+        $enabled = (bool) config('services.shipping.fallback_enabled', true);
+
+        if (!$enabled) {
+            return [
+                'success' => false,
+                'message' => $msg,
+            ];
+        }
+
+        $courier = strtolower(trim($courier));
+        $flat = (int) config('services.shipping.fallback_flat', 20000);
+        $etd  = (string) config('services.shipping.fallback_etd', '2-5 hari');
+
+        return [
+            'success'  => true,
+            'degraded' => true,
+            'message'  => $msg,
+            'data' => [
+                'data' => [
+                    [
+                        'service'     => strtoupper($courier) . ' FLAT',
+                        'description' => 'Tarif sementara (fallback) karena server ongkir sedang gangguan',
+                        'cost'        => $flat,
+                        'etd'         => $etd,
+                        // ✅ ini dipakai JS untuk kurir_kode hidden
+                        'code'        => $courier,   // <- jne/jnt/pos (bukan FLAT)
+                    ],
+                    [
+                        'service'     => 'PICKUP',
+                        'description' => 'Ambil di toko / kurir diatur manual oleh admin',
+                        'cost'        => 0,
+                        'etd'         => '-',
+                        // ✅ ini dipakai JS untuk kurir_kode hidden
+                        'code'        => 'pickup',   // <- pickup (bukan PICKUP)
+                    ],
+                ],
+            ],
+        ];
+    }
+}
