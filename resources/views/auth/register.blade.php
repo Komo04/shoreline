@@ -143,7 +143,7 @@
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label class="form-label fw-semibold small">No Telepon</label>
-                                        <input type="text" name="no_telp" value="{{ old('no_telp') }}" class="form-control" placeholder="08xxxxxxxxxx" required>
+                                        <input type="text" name="no_telp" id="no_telp" value="{{ old('no_telp') }}" class="form-control" placeholder="08xxxxxxxxxx" inputmode="numeric" pattern="[0-9]+" oninput="this.value = this.value.replace(/[^0-9]/g, '')" required>
                                     </div>
 
                                     <div class="mb-3">
@@ -195,6 +195,7 @@
         const form = btn.closest("form");
         const togglePasswordConfirmation = document.getElementById('togglePasswordConfirmation');
         const passwordConfirmation = document.getElementById('password_confirmation');
+        const noTelp = document.getElementById('no_telp');
 
         togglePassword.addEventListener('click', function() {
             const icon = this.querySelector("i");
@@ -216,6 +217,12 @@
             passwordConfirmation.type = isPassword ? 'text' : 'password';
             icon.classList.toggle('bi-eye', !isPassword);
             icon.classList.toggle('bi-eye-slash', isPassword);
+        });
+
+        noTelp.addEventListener('paste', function(event) {
+            event.preventDefault();
+            const pastedText = (event.clipboardData || window.clipboardData).getData('text');
+            this.value = pastedText.replace(/[^0-9]/g, '');
         });
 
     </script>
