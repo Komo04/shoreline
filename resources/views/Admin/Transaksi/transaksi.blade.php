@@ -94,7 +94,7 @@
 @section('content')
 
 @php
-    $statuses = ['pending','paid','diproses','dikirim','selesai','expired','dibatalkan'];
+    $statuses = ['pending','paid','diproses','dikirim','selesai','expired','dibatalkan','refund','refund_processing','partial_refund'];
 @endphp
 
 <div class="container-fluid py-4">
