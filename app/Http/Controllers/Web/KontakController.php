@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Mail\AdminKontakMasukMail;
 use App\Models\User;
 use App\Notifications\AdminKontakMasuk;
 use Illuminate\Http\Request;
 use App\Models\Kontak;
+use Illuminate\Support\Facades\Mail;
 
 class KontakController extends Controller
 {
@@ -42,6 +44,10 @@ class KontakController extends Controller
                 ...$data,
                 'kontak_id' => $kontak->id,
             ]));
+
+            if (!empty($admin->email)) {
+                Mail::to($admin->email)->send(new AdminKontakMasukMail($kontak));
+            }
         }
 
         return back()->with('flash', [
