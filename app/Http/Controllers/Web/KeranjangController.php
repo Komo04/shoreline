@@ -140,7 +140,7 @@ class KeranjangController extends Controller
             return back()->with('error', 'Stok varian yang dipilih habis.');
         }
 
-        DB::transaction(function () use ($item, $varianBaru, $stokBaru) {
+        DB::transaction(function () use ($item, $varianBaru, $stokBaru, $userId) {
 
             $qtySekarang = (int) $item->jumlah_produk;
 
