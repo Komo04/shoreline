@@ -183,7 +183,7 @@
 
 @section('content')
 @php
-$statusList = ['menunggu_verifikasi','paid','ditolak','expired','dibatalkan'];
+$statusList = ['menunggu_verifikasi','paid','ditolak','expired','dibatalkan','refund','refund_processing','partial_refund'];
 @endphp
 
 <div class="container-fluid py-4">

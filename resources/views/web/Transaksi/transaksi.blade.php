@@ -103,7 +103,7 @@
     <form method="GET" class="d-flex gap-2 flex-wrap">
       <select name="status" class="form-select form-select-sm" style="max-width: 240px">
         <option value="">Semua Status</option>
-        @foreach (['pending','paid','diproses','dikirim','selesai','expired','dibatalkan'] as $st)
+        @foreach (['pending','paid','diproses','dikirim','selesai','expired','dibatalkan','refund','refund_processing','partial_refund'] as $st)
           <option value="{{ $st }}" @selected(request('status') === $st)>{{ strtoupper($st) }}</option>
         @endforeach
       </select>
