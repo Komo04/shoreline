@@ -57,25 +57,25 @@
 
                     <div class="mb-3">
                         <label class="form-label">Nama</label>
-                        <input type="text" name="nama" class="form-control @error('nama') is-invalid @enderror" placeholder="Nama Anda" value="{{ old('nama') }}">
+                        <input type="text" name="nama" class="form-control @error('nama') is-invalid @enderror" placeholder="Masukkan nama lengkap Anda" value="{{ old('nama') }}">
                         @error('nama') <div class="invalid-feedback">{{ $message }}</div> @enderror
                     </div>
 
                     <div class="mb-3">
                         <label class="form-label">Email</label>
-                        <input type="email" name="email" class="form-control @error('email') is-invalid @enderror" placeholder="email@example.com" value="{{ old('email') }}">
+                        <input type="email" name="email" class="form-control @error('email') is-invalid @enderror" placeholder="Contoh: nama@email.com" value="{{ old('email') }}">
                         @error('email') <div class="invalid-feedback">{{ $message }}</div> @enderror
                     </div>
 
                     <div class="mb-3">
                         <label class="form-label">Subjek</label>
-                        <input type="text" name="subjek" class="form-control @error('subjek') is-invalid @enderror" placeholder="Subjek pesan" value="{{ old('subjek') }}">
+                        <input type="text" name="subjek" class="form-control @error('subjek') is-invalid @enderror" placeholder="Contoh: Tanya stok, pengiriman, atau pesanan" value="{{ old('subjek') }}">
                         @error('subjek') <div class="invalid-feedback">{{ $message }}</div> @enderror
                     </div>
 
                     <div class="mb-4">
                         <label class="form-label">Pesan</label>
-                        <textarea rows="4" name="pesan" class="form-control @error('pesan') is-invalid @enderror" placeholder="Tulis pesan Anda">{{ old('pesan') }}</textarea>
+                        <textarea rows="4" name="pesan" class="form-control @error('pesan') is-invalid @enderror" placeholder="Tulis pesan Anda secara lengkap di sini">{{ old('pesan') }}</textarea>
                         @error('pesan') <div class="invalid-feedback">{{ $message }}</div> @enderror
                     </div>
 

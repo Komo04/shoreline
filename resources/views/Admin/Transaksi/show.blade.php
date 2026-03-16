@@ -1,4 +1,5 @@
 @extends('layouts.Admin.mainlayout')
+@php use App\Http\Controllers\Admin\TransaksiController; @endphp
 @section('title','Detail Transaksi')
 
 @push('styles')
@@ -415,9 +416,18 @@
     </div>
   </div>
 
+  @php
+    $dummyResiExample = TransaksiController::suggestedDummyResi($transaksi->kurir_kode, $transaksi->kurir_layanan);
+  @endphp
+
   <div class="mb-2">
     <label class="form-label small text-muted">No Resi</label>
     <input name="no_resi" class="form-control" placeholder="Masukkan no resi" required>
+    @if($dummyResiExample)
+      <div class="form-text">
+        Contoh format dummy untuk pengiriman ini: <b>{{ $dummyResiExample }}</b>
+      </div>
+    @endif
   </div>
 
   <button class="btn btn-primary w-100" onclick="return confirm('Kirim pesanan ini?')">

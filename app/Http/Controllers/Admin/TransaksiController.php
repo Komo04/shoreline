@@ -187,7 +187,8 @@ class TransaksiController extends Controller
 
                 $resi = $this->normalizeDummyResi(
                     trim((string) $request->no_resi),
-                    $courier
+                    $courier,
+                    (string) ($trx->kurir_layanan ?? '')
                 );
 
                 // (opsional) kalau POS tapi resi kosong/aneh, tetap valid karena kamu izinkan dummy.
@@ -602,14 +603,14 @@ class TransaksiController extends Controller
             Str::upper(Str::random(4));
     }
 
-    private function normalizeDummyResi(string $resi, string $courier): string
+    private function normalizeDummyResi(string $resi, string $courier, string $service = ''): string
     {
         if ($resi === '') {
             throw new \Exception('Nomor resi wajib diisi.');
         }
 
         $upperResi = strtoupper($resi);
-        $dummyPrefix = $this->dummyPrefixForCourier($courier);
+        $dummyPrefix = $this->dummyPrefixForCourier($courier, $service);
 
         if ($dummyPrefix === null && str_starts_with($upperResi, 'DUMMY-')) {
             throw new \Exception('Kurir ini tidak mendukung format resi dummy otomatis.');
@@ -625,17 +626,57 @@ class TransaksiController extends Controller
             }
         }
 
-        return $resi;
+        $normalizedRealResi = preg_replace('/[^A-Z0-9\-]/', '', $upperResi);
+        if ($normalizedRealResi === '') {
+            throw new \Exception('Format nomor resi tidak valid.');
+        }
+
+        if (strlen($normalizedRealResi) < 8) {
+            throw new \Exception('Nomor resi terlalu pendek untuk metode pengiriman ini.');
+        }
+
+        if ($dummyPrefix !== null && str_starts_with($normalizedRealResi, 'DUMMY-') && !str_starts_with($normalizedRealResi, $dummyPrefix)) {
+            throw new \Exception("Format resi dummy harus mengikuti {$dummyPrefix}");
+        }
+
+        return $normalizedRealResi;
     }
 
-    private function dummyPrefixForCourier(string $courier): ?string
+    private function dummyPrefixForCourier(string $courier, string $service = ''): ?string
     {
-        return match (strtolower(trim($courier))) {
-            'jne' => 'DUMMY-JNE-',
-            'jnt', 'j&t', 'j&t express' => 'DUMMY-JNT-',
-            'pos', 'posindonesia', 'pos_indonesia' => 'DUMMY-POS-',
+        $courierCode = match (strtolower(trim($courier))) {
+            'jne' => 'JNE',
+            'jnt', 'j&t', 'j&t express' => 'JNT',
+            'pos', 'posindonesia', 'pos_indonesia' => 'POS',
             default => null,
         };
+
+        if ($courierCode === null) {
+            return null;
+        }
+
+        $serviceCode = $this->serviceCodeForResi($service, $courierCode);
+
+        return "DUMMY-{$courierCode}-{$serviceCode}-";
+    }
+
+    private function serviceCodeForResi(string $service, string $courierCode): string
+    {
+        $service = strtoupper(trim($service));
+        $service = preg_replace('/\s+/', ' ', $service);
+        $service = preg_replace('/^' . preg_quote($courierCode, '/') . '\s+/', '', $service);
+        $service = preg_replace('/[^A-Z0-9]+/', '-', $service);
+        $service = trim((string) $service, '-');
+
+        return $service !== '' ? $service : 'REG';
+    }
+
+    public static function suggestedDummyResi(?string $courier, ?string $service = ''): ?string
+    {
+        $instance = new self();
+        $prefix = $instance->dummyPrefixForCourier((string) $courier, (string) $service);
+
+        return $prefix ? $prefix . now()->format('YmdHis') : null;
     }
 }
 
