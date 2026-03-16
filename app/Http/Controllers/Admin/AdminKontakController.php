@@ -42,7 +42,7 @@ class AdminKontakController extends Controller
             'message' => ['required', 'string'],
         ]);
 
-        Mail::to($kontak->email)->queue(
+        Mail::to($kontak->email)->send(
             new KontakReplyMail($kontak, $data['subject'], $data['message'])
         );
 
