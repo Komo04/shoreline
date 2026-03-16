@@ -11,7 +11,8 @@ class LoginResponse implements LoginResponseContract
 {
     public function toResponse($request): Response|RedirectResponse
     {
-        // Penanda bahwa user pernah login untuk flow "sesi berakhir".
+        // Simpan di session + cookie agar status "pernah login" tetap bisa dibaca
+        // walaupun session utama sudah expired.
         $request->session()->put('had_login', true);
 
         $user = Auth::user();
@@ -22,9 +23,13 @@ class LoginResponse implements LoginResponseContract
             : false;
 
         if ($isAdmin) {
-            return redirect()->route('admin.dashboard');
+            return redirect()
+                ->route('admin.dashboard')
+                ->withCookie(cookie()->forever('had_login', '1'));
         }
 
-        return redirect()->route('home');
+        return redirect()
+            ->route('home')
+            ->withCookie(cookie()->forever('had_login', '1'));
     }
 }

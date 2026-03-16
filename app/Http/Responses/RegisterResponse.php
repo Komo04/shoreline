@@ -10,9 +10,12 @@ class RegisterResponse implements RegisterResponseContract
 {
     public function toResponse($request): Response|RedirectResponse
     {
-        // Samakan perilaku session dengan login sukses.
+        // Samakan perilaku session dengan login sukses dan persist penandanya
+        // via cookie agar flow "sesi berakhir" tetap terdeteksi.
         $request->session()->put('had_login', true);
 
-        return redirect()->route('home');
+        return redirect()
+            ->route('home')
+            ->withCookie(cookie()->forever('had_login', '1'));
     }
 }

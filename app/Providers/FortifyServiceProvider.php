@@ -114,10 +114,15 @@ class FortifyServiceProvider extends ServiceProvider
                     $user = $request->user();
 
                     if ($user && $user->user_role === 'admin') {
-                        return redirect()->route('admin.dashboard')->with('verified', true);
+                        return redirect()
+                            ->route('admin.dashboard')
+                            ->with('verified', true)
+                            ->withCookie(cookie()->forever('had_login', '1'));
                     }
 
-                    return redirect('/')->with('verified', true);
+                    return redirect('/')
+                        ->with('verified', true)
+                        ->withCookie(cookie()->forever('had_login', '1'));
                 }
             };
         });
