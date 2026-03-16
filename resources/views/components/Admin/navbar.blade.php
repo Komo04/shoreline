@@ -66,7 +66,9 @@ $initial = strtoupper(substr($user->name ?? 'A', 0, 1));
                     $link = match($type) {
                     'admin_pembelian_baru' => route('admin.transaksi.show', $n->data['transaksi_id'] ?? 0),
                     'admin_ulasan_baru' => route('admin.ulasans.index'),
-                    'admin_kontak_masuk' => $n->data['url'] ?? route('admin.kontak.index'),
+                    'admin_kontak_masuk' => !empty($n->data['kontak_id'])
+                        ? route('admin.kontak.show', $n->data['kontak_id'])
+                        : route('admin.kontak.index'),
                     default => route('admin.notifikasi.index'),
                     };
 
