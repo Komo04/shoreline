@@ -636,18 +636,18 @@ function renderUkuran(warna) {
     opt.textContent = v.ukuran + (v.stok <= 0 ? ' (Habis)' : '');
     opt.dataset.stok = v.stok;
     opt.dataset.image = v.image;
-    opt.disabled = v.stok <= 0;
+    opt.dataset.outOfStock = v.stok <= 0 ? '1' : '0';
     ukuranSelect.appendChild(opt);
   });
 
-  let idx = 0;
-  while (idx < ukuranSelect.options.length && ukuranSelect.options[idx].disabled) idx++;
-
-  if (ukuranSelect.options.length === 0 || idx >= ukuranSelect.options.length) {
+  if (ukuranSelect.options.length === 0) {
     setOutOfStockUI();
     renderUkuranChips([]); // kosong
     return;
   }
+
+  let idx = Array.from(ukuranSelect.options).findIndex(opt => Number(opt.dataset.stok || 0) > 0);
+  if (idx < 0) idx = 0;
 
   ukuranSelect.selectedIndex = idx;
   renderUkuranChipsFromSelect(); // ✅ buat chips dari select
@@ -664,6 +664,7 @@ function renderUkuranChipsFromSelect(){
 
   opts.forEach((opt, idx) => {
     const id = `ukuran-chip-${idx}`;
+    const isOutOfStock = opt.dataset.outOfStock === '1';
 
     const label = document.createElement('label');
     label.className = 'chip-check';
@@ -674,16 +675,14 @@ function renderUkuranChipsFromSelect(){
     input.value = opt.value;
     input.id = id;
     input.checked = idx === ukuranSelect.selectedIndex;
-    input.disabled = opt.disabled;
 
     const span = document.createElement('span');
     span.className = 'chip-ui';
     span.textContent = opt.textContent.replace(' (Habis)', '');
 
     // kalau habis, kasih efek disabled halus
-    if (opt.disabled) {
+    if (isOutOfStock) {
       span.style.opacity = '0.45';
-      span.style.cursor = 'not-allowed';
     }
 
     label.appendChild(input);
