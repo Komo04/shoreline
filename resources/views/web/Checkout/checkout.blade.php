@@ -346,7 +346,7 @@
                                     </div>
                                     <div style="flex:1;">
                                         <p class="pt mb-0">Transfer</p>
-                                        <div class="ps">BCA / BRI / Mandiri</div>
+                                        <div class="ps">Bank Danamon</div>
                                     </div>
                                 </label>
 
@@ -366,7 +366,7 @@
                                     </div>
                                     <div style="flex:1;">
                                         <p class="pt mb-0">Midtrans</p>
-                                        <div class="ps">Scan QR untuk bayar</div>
+                                        <div class="ps">Virtual Account</div>
                                     </div>
                                 </label>
                             </div>
@@ -386,13 +386,13 @@
 
                                     <div class="mb-2">
                                         <div class="tlabel">Bank</div>
-                                        <div class="fw-semibold" id="bankText">BCA</div>
+                                        <div class="fw-semibold" id="bankText">Danamon</div>
                                     </div>
 
                                     <div class="mb-2">
                                         <div class="tlabel">No Rekening</div>
                                         <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
-                                            <div class="tno" id="noRekText">1234567890</div>
+                                            <div class="tno" id="noRekText">003612077192</div>
                                             <button type="button" class="btn btn-outline-secondary btn-sm pill" id="btnCopyRek">
                                                 Salin
                                             </button>
@@ -400,7 +400,7 @@
                                     </div>
 
                                     <div class="mb-0">
-                                        <div class="tlabel">Atas Nama</div>
+                                        <div class="tlabel"> Ni Luh Yaniati</div>
                                         <div class="fw-semibold" id="namaRekText">Toko Shoreline</div>
                                     </div>
                                 </div>
