@@ -74,7 +74,7 @@ trait DummyTracking
         // ✅ MODE A: ETD 1 hari (pakai jam)
         if ($totalDays <= 1) {
             $milestonesHours = [
-                ['h' => 0,  'desc' => 'Paket diterima oleh kurir (pickup).', 'city' => $originCity],
+                ['h' => 0,  'desc' => 'Paket diterima oleh kurir.', 'city' => $originCity],
                 ['h' => 2,  'desc' => 'Paket diproses di gudang asal.', 'city' => $originCity],
                 ['h' => 5,  'desc' => 'Paket diberangkatkan ke kota tujuan.', 'city' => $originCity],
                 ['h' => 10, 'desc' => 'Paket tiba di hub kota tujuan.', 'city' => $destCity],
@@ -99,7 +99,7 @@ trait DummyTracking
 
             // milestone persentase perjalanan
             $milestones = [
-                ['p' => 0.00, 'desc' => 'Paket diterima oleh kurir (pickup).', 'city' => $originCity],
+                ['p' => 0.00, 'desc' => 'Paket diterima oleh kurir.', 'city' => $originCity],
                 ['p' => 0.20, 'desc' => 'Paket diproses di gudang asal.', 'city' => $originCity],
                 ['p' => 0.45, 'desc' => 'Paket diberangkatkan ke kota tujuan.', 'city' => $originCity],
                 ['p' => 0.70, 'desc' => 'Paket tiba di hub kota tujuan.', 'city' => $destCity],

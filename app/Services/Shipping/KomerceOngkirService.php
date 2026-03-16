@@ -327,14 +327,6 @@ class KomerceOngkirService
                         'courier' => $courier,
                         'code' => $courier,
                     ],
-                    [
-                        'service' => 'PICKUP',
-                        'description' => 'Ambil di toko / kurir diatur manual oleh admin',
-                        'cost' => 0,
-                        'etd' => '-',
-                        'courier' => 'pickup',
-                        'code' => 'pickup',
-                    ],
                 ],
                 'meta' => [
                     'message' => $msg,

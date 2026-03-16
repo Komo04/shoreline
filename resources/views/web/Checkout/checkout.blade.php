@@ -2,6 +2,10 @@
 @section('title', 'Checkout')
 
 @section('content')
+@php
+    $defaultPaymentConfig = $defaultPaymentConfig ?? ['methods' => [], 'transfer' => []];
+    $paymentProfiles = $paymentProfiles ?? [];
+@endphp
 <div class="container py-5">
 
     <style>
@@ -263,6 +267,7 @@
                                                type="radio"
                                                name="alamat_id"
                                                value="{{ $alamat->id }}"
+                                               data-provinsi="{{ $alamat->provinsi }}"
                                                {{ $checked ? 'checked' : '' }}
                                                required>
                                     </div>
@@ -340,35 +345,22 @@
 
                         <div class="p-3">
                             <div class="seg">
-                                <label class="seg-item">
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="radio" name="metode_pembayaran" value="transfer" required>
-                                    </div>
-                                    <div style="flex:1;">
-                                        <p class="pt mb-0">Transfer</p>
-                                        <div class="ps">Bank Danamon</div>
-                                    </div>
-                                </label>
-
-                                <label class="seg-item">
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="radio" name="metode_pembayaran" value="qris">
-                                    </div>
-                                    <div style="flex:1;">
-                                        <p class="pt mb-0">QRIS</p>
-                                        <div class="ps">Scan QR untuk bayar</div>
-                                    </div>
-                                </label>
-
-                                <label class="seg-item">
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="radio" name="metode_pembayaran" value="midtrans">
-                                    </div>
-                                    <div style="flex:1;">
-                                        <p class="pt mb-0">Midtrans</p>
-                                        <div class="ps">Virtual Account</div>
-                                    </div>
-                                </label>
+                                @foreach(($defaultPaymentConfig['methods'] ?? []) as $methodKey => $methodConfig)
+                                    <label class="seg-item" data-method="{{ $methodKey }}">
+                                        <div class="form-check">
+                                            <input class="form-check-input"
+                                                   type="radio"
+                                                   name="metode_pembayaran"
+                                                   value="{{ $methodKey }}"
+                                                   {{ old('metode_pembayaran') === $methodKey ? 'checked' : '' }}
+                                                   required>
+                                        </div>
+                                        <div style="flex:1;">
+                                            <p class="pt mb-0 method-title">{{ $methodConfig['label'] ?? strtoupper($methodKey) }}</p>
+                                            <div class="ps method-subtitle">{{ $methodConfig['subtitle'] ?? '' }}</div>
+                                        </div>
+                                    </label>
+                                @endforeach
                             </div>
 
                             {{-- TRANSFER --}}
@@ -386,13 +378,13 @@
 
                                     <div class="mb-2">
                                         <div class="tlabel">Bank</div>
-                                        <div class="fw-semibold" id="bankText">Danamon</div>
+                                        <div class="fw-semibold" id="bankText">{{ data_get($defaultPaymentConfig, 'transfer.bank', '-') }}</div>
                                     </div>
 
                                     <div class="mb-2">
                                         <div class="tlabel">No Rekening</div>
                                         <div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">
-                                            <div class="tno" id="noRekText">003612077192</div>
+                                            <div class="tno" id="noRekText">{{ data_get($defaultPaymentConfig, 'transfer.account_number', '-') }}</div>
                                             <button type="button" class="btn btn-outline-secondary btn-sm pill" id="btnCopyRek">
                                                 Salin
                                             </button>
@@ -400,8 +392,9 @@
                                     </div>
 
                                     <div class="mb-0">
-                                        <div class="tlabel"> Ni Luh Yaniati</div>
-                                        <div class="fw-semibold" id="namaRekText">Toko Shoreline</div>
+                                        <div class="tlabel">Atas Nama</div>
+                                        <div class="fw-semibold" id="namaRekText">{{ data_get($defaultPaymentConfig, 'transfer.account_name', '-') }}</div>
+                                        <div class="small text-muted mt-1" id="ownerRekText">{{ data_get($defaultPaymentConfig, 'transfer.owner_name', '') }}</div>
                                     </div>
                                 </div>
                             </div>
@@ -544,6 +537,77 @@
 </div>
 
 <script>
+    const paymentProfiles = @json($paymentProfiles);
+    const defaultPaymentConfig = @json($defaultPaymentConfig);
+
+    function normalizeProvinceKey(value){
+        return (value || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    function getSelectedProvince(){
+        var checked = document.querySelector('input[name="alamat_id"]:checked');
+        return checked ? (checked.dataset.provinsi || '') : '';
+    }
+
+    function getPaymentProfile(){
+        var provinceKey = normalizeProvinceKey(getSelectedProvince());
+        return paymentProfiles[provinceKey] || defaultPaymentConfig;
+    }
+
+    function syncPaymentOptionsByProvince(){
+        var profile = getPaymentProfile();
+        var methods = (profile && profile.methods) ? profile.methods : {};
+        var transfer = (profile && profile.transfer) ? profile.transfer : {};
+        var firstAvailable = null;
+
+        document.querySelectorAll('.seg-item').forEach(function(item){
+            var method = item.dataset.method || '';
+            var config = methods[method] || {};
+            var input = item.querySelector('input[name="metode_pembayaran"]');
+            var title = item.querySelector('.method-title');
+            var subtitle = item.querySelector('.method-subtitle');
+            var enabled = !!config.enabled;
+
+            item.style.display = enabled ? '' : 'none';
+
+            if (title) title.textContent = config.label || method.toUpperCase();
+            if (subtitle) subtitle.textContent = config.subtitle || '';
+
+            if (input) {
+                input.disabled = !enabled;
+
+                if (enabled && !firstAvailable) firstAvailable = input;
+                if (!enabled && input.checked) input.checked = false;
+            }
+        });
+
+        var selectedPayment = document.querySelector('input[name="metode_pembayaran"]:checked');
+        if (!selectedPayment && firstAvailable) {
+            firstAvailable.checked = true;
+        }
+
+        var bankText = document.getElementById('bankText');
+        var noRekText = document.getElementById('noRekText');
+        var namaRekText = document.getElementById('namaRekText');
+        var ownerRekText = document.getElementById('ownerRekText');
+
+        if (bankText) bankText.textContent = transfer.bank || '-';
+        if (noRekText) noRekText.textContent = transfer.account_number || '-';
+        if (namaRekText) namaRekText.textContent = transfer.account_name || '-';
+        if (ownerRekText) ownerRekText.textContent = transfer.owner_name || '';
+
+        var segs = document.querySelectorAll('.seg-item');
+        for (var i = 0; i < segs.length; i++) {
+            segs[i].classList.remove('active');
+            var radio = segs[i].querySelector('input[name="metode_pembayaran"]');
+            if (radio && radio.checked) {
+                segs[i].classList.add('active');
+            }
+        }
+
+        toggleTransferInfo();
+    }
+
     function toggleTransferInfo(){
     var radio = document.querySelector('input[name="metode_pembayaran"]:checked');
     var selected = radio ? radio.value : null;
@@ -568,6 +632,7 @@
     }
 
     document.addEventListener('DOMContentLoaded', function(){
+        syncPaymentOptionsByProvince();
         toggleTransferInfo();
 
         var btnCopy = document.getElementById('btnCopyRek');
@@ -594,6 +659,7 @@
 
             var wrapAddr = e.target.closest ? e.target.closest('.addr') : null;
             if(wrapAddr) wrapAddr.classList.add('active');
+            syncPaymentOptionsByProvince();
         }
 
         if(e.target.name === 'metode_pembayaran'){
