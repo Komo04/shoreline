@@ -318,21 +318,48 @@ class KomerceOngkirService
             'message' => $msg,
             'data' => [
                 // dibuat mirip struktur API: data.data = options
-                'data' => [
-                    [
-                        'service' => strtoupper($courier) . ' FLAT',
-                        'description' => 'Tarif sementara (fallback) karena server ongkir sedang gangguan',
-                        'cost' => $flat,
-                        'etd' => $etd,
-                        'courier' => $courier,
-                        'code' => $courier,
-                    ],
-                ],
+                'data' => $this->manualFallbackServices($courier, $flat, $etd),
                 'meta' => [
                     'message' => $msg,
                 ],
             ],
         ];
+    }
+
+    private function manualFallbackServices(string $courier, int $flat, string $defaultEtd): array
+    {
+        $economy = max(10000, $flat - 5000);
+        $regular = max($economy + 5000, $flat);
+        $fast = $regular + 10000;
+
+        $map = [
+            'jne' => [
+                ['service' => 'JNE OKE', 'description' => 'Ongkir manual ekonomi sementara', 'cost' => $economy, 'etd' => '3-5 hari'],
+                ['service' => 'JNE REG', 'description' => 'Ongkir manual reguler sementara', 'cost' => $regular, 'etd' => $defaultEtd],
+                ['service' => 'JNE YES', 'description' => 'Ongkir manual cepat sementara', 'cost' => $fast, 'etd' => '1-2 hari'],
+            ],
+            'jnt' => [
+                ['service' => 'JNT ECO', 'description' => 'Ongkir manual ekonomi sementara', 'cost' => $economy, 'etd' => '3-5 hari'],
+                ['service' => 'JNT EZ', 'description' => 'Ongkir manual reguler sementara', 'cost' => $regular, 'etd' => $defaultEtd],
+                ['service' => 'JNT EXPRESS', 'description' => 'Ongkir manual cepat sementara', 'cost' => $fast, 'etd' => '1-2 hari'],
+            ],
+            'pos' => [
+                ['service' => 'POS HEMAT', 'description' => 'Ongkir manual hemat sementara', 'cost' => $economy, 'etd' => '3-6 hari'],
+                ['service' => 'POS REGULER', 'description' => 'Ongkir manual reguler sementara', 'cost' => $regular, 'etd' => $defaultEtd],
+                ['service' => 'POS KILAT', 'description' => 'Ongkir manual cepat sementara', 'cost' => $fast, 'etd' => '1-2 hari'],
+            ],
+        ];
+
+        $services = $map[$courier] ?? [
+            ['service' => strtoupper($courier) . ' REG', 'description' => 'Ongkir manual reguler sementara', 'cost' => $regular, 'etd' => $defaultEtd],
+        ];
+
+        return array_map(function (array $service) use ($courier) {
+            $service['courier'] = $courier;
+            $service['code'] = $courier;
+
+            return $service;
+        }, $services);
     }
 
     /**

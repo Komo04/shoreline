@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Sentry\Laravel\Facade as Sentry;
 
 class CheckoutController extends Controller
@@ -47,7 +48,24 @@ class CheckoutController extends Controller
             ->orderByDesc('is_default')
             ->get();
 
-        return view('web.Checkout.checkout', compact('keranjangs', 'total', 'alamats'));
+        $defaultAlamat = $alamats->firstWhere('is_default', true) ?? $alamats->first();
+        $defaultPaymentConfig = $this->paymentConfigForProvince($defaultAlamat?->provinsi);
+        $paymentProfiles = collect($alamats)
+            ->pluck('provinsi')
+            ->filter()
+            ->unique()
+            ->mapWithKeys(fn ($provinsi) => [
+                $this->normalizeProvinceKey($provinsi) => $this->paymentConfigForProvince($provinsi),
+            ])
+            ->all();
+
+        return view('web.Checkout.checkout', compact(
+            'keranjangs',
+            'total',
+            'alamats',
+            'defaultPaymentConfig',
+            'paymentProfiles'
+        ));
     }
 
     public function store(Request $request, KomerceOngkirService $svc)
@@ -63,10 +81,21 @@ class CheckoutController extends Controller
                     $fail('Alamat tidak valid.');
                 }
             }],
-            'metode_pembayaran' => 'required|in:transfer,qris,midtrans',
+            'metode_pembayaran' => 'required|string',
             'kurir_kode' => 'required|string',
             'kurir_layanan' => 'required|string',
         ]);
+
+        $selectedAlamat = Alamat::where('id', $request->alamat_id)
+            ->where('user_id', $userId)
+            ->firstOrFail();
+
+        $allowedPaymentMethods = $this->allowedPaymentMethodsForProvince($selectedAlamat->provinsi);
+        if (!in_array($request->metode_pembayaran, $allowedPaymentMethods, true)) {
+            throw ValidationException::withMessages([
+                'metode_pembayaran' => 'Metode pembayaran tidak tersedia untuk provinsi alamat yang dipilih.',
+            ]);
+        }
 
         $keranjangs = Keranjang::with(['produk', 'varian'])
             ->where('user_id', $userId)
@@ -126,62 +155,56 @@ class CheckoutController extends Controller
                 $selectedEtd = null;
                 $selectedService = null;
 
-                if ($courier === 'pickup' || strtoupper($service) === 'PICKUP') {
-                    $ongkir = 0;
-                    $selectedService = 'PICKUP';
-                    $selectedEtd = '-';
-                } else {
-                    if ($alamat->destination_id) {
-                        $result = $svc->calculateDomesticCost(
-                            $originId,
-                            (int) $alamat->destination_id,
-                            (int) $totalWeight,
-                            $courier
-                        );
+                if ($alamat->destination_id) {
+                    $result = $svc->calculateDomesticCost(
+                        $originId,
+                        (int) $alamat->destination_id,
+                        (int) $totalWeight,
+                        $courier
+                    );
 
-                        if (!empty($result['success'])) {
-                            $options = data_get($result, 'data.data', data_get($result, 'data', []));
-                            [$selectedCost, $selectedEtd, $selectedService] =
-                                $this->pickShippingFromOptions($options, $service);
-
-                            if ($selectedCost !== null) {
-                                $ongkir = (int) $selectedCost;
-                            }
-                        }
-                    }
-
-                    if ($ongkir === null) {
-                        $fallback = $this->fallbackShippingOptions(
-                            $alamat->destination_id
-                                ? 'Server ongkir sedang gangguan. Menggunakan ongkir fallback.'
-                                : 'Alamat belum punya destination_id. Menggunakan ongkir fallback.',
-                            $courier
-                        );
-
-                        if (empty($fallback['success'])) {
-                            throw new \Exception($fallback['message'] ?? 'Gagal menghitung ongkir');
-                        }
-
-                        $fallbackOptions = data_get($fallback, 'data.data', []);
+                    if (!empty($result['success'])) {
+                        $options = data_get($result, 'data.data', data_get($result, 'data', []));
                         [$selectedCost, $selectedEtd, $selectedService] =
-                            $this->pickShippingFromOptions($fallbackOptions, $service);
+                            $this->pickShippingFromOptions($options, $service);
 
-                        if ($selectedCost === null && isset($fallbackOptions[0])) {
-                            $first = $fallbackOptions[0];
-                            $selectedService = (string) ($first['service'] ?? 'FLAT');
-
-                            $cost = data_get($first, 'cost', 0);
-                            if (is_array($cost)) {
-                                $selectedCost = (int) data_get($cost, '0.value', 0);
-                                $selectedEtd = (string) data_get($cost, '0.etd', '');
-                            } else {
-                                $selectedCost = (int) $cost;
-                                $selectedEtd = (string) data_get($first, 'etd', null);
-                            }
+                        if ($selectedCost !== null) {
+                            $ongkir = (int) $selectedCost;
                         }
-
-                        $ongkir = (int) ($selectedCost ?? 0);
                     }
+                }
+
+                if ($ongkir === null) {
+                    $fallback = $this->fallbackShippingOptions(
+                        $alamat->destination_id
+                            ? 'Server ongkir sedang gangguan. Menggunakan ongkir fallback.'
+                            : 'Alamat belum punya destination_id. Menggunakan ongkir fallback.',
+                        $courier
+                    );
+
+                    if (empty($fallback['success'])) {
+                        throw new \Exception($fallback['message'] ?? 'Gagal menghitung ongkir');
+                    }
+
+                    $fallbackOptions = data_get($fallback, 'data.data', []);
+                    [$selectedCost, $selectedEtd, $selectedService] =
+                        $this->pickShippingFromOptions($fallbackOptions, $service);
+
+                    if ($selectedCost === null && isset($fallbackOptions[0])) {
+                        $first = $fallbackOptions[0];
+                        $selectedService = (string) ($first['service'] ?? 'FLAT');
+
+                        $cost = data_get($first, 'cost', 0);
+                        if (is_array($cost)) {
+                            $selectedCost = (int) data_get($cost, '0.value', 0);
+                            $selectedEtd = (string) data_get($cost, '0.etd', '');
+                        } else {
+                            $selectedCost = (int) $cost;
+                            $selectedEtd = (string) data_get($first, 'etd', null);
+                        }
+                    }
+
+                    $ongkir = (int) ($selectedCost ?? 0);
                 }
 
                 $grandTotal = $subtotal + (int) $ongkir;
@@ -477,6 +500,15 @@ class CheckoutController extends Controller
             'degraded' => true,
             'message'  => $msg,
             'data' => [
+                'data' => $this->manualFallbackServices($courier, $flat, $etd),
+            ],
+        ];
+
+        return [
+            'success'  => true,
+            'degraded' => true,
+            'message'  => $msg,
+            'data' => [
                 'data' => [
                     [
                         'service'     => strtoupper($courier) . ' FLAT',
@@ -486,16 +518,78 @@ class CheckoutController extends Controller
                         // ✅ ini dipakai JS untuk kurir_kode hidden
                         'code'        => $courier,   // <- jne/jnt/pos (bukan FLAT)
                     ],
-                    [
-                        'service'     => 'PICKUP',
-                        'description' => 'Ambil di toko / kurir diatur manual oleh admin',
-                        'cost'        => 0,
-                        'etd'         => '-',
-                        // ✅ ini dipakai JS untuk kurir_kode hidden
-                        'code'        => 'pickup',   // <- pickup (bukan PICKUP)
-                    ],
                 ],
             ],
         ];
+    }
+
+    private function manualFallbackServices(string $courier, int $flat, string $defaultEtd): array
+    {
+        $economy = max(10000, $flat - 5000);
+        $regular = max($economy + 5000, $flat);
+        $fast = $regular + 10000;
+
+        $map = [
+            'jne' => [
+                ['service' => 'JNE OKE', 'description' => 'Ongkir manual ekonomi sementara', 'cost' => $economy, 'etd' => '3-5 hari'],
+                ['service' => 'JNE REG', 'description' => 'Ongkir manual reguler sementara', 'cost' => $regular, 'etd' => $defaultEtd],
+                ['service' => 'JNE YES', 'description' => 'Ongkir manual cepat sementara', 'cost' => $fast, 'etd' => '1-2 hari'],
+            ],
+            'jnt' => [
+                ['service' => 'JNT ECO', 'description' => 'Ongkir manual ekonomi sementara', 'cost' => $economy, 'etd' => '3-5 hari'],
+                ['service' => 'JNT EZ', 'description' => 'Ongkir manual reguler sementara', 'cost' => $regular, 'etd' => $defaultEtd],
+                ['service' => 'JNT EXPRESS', 'description' => 'Ongkir manual cepat sementara', 'cost' => $fast, 'etd' => '1-2 hari'],
+            ],
+            'pos' => [
+                ['service' => 'POS HEMAT', 'description' => 'Ongkir manual hemat sementara', 'cost' => $economy, 'etd' => '3-6 hari'],
+                ['service' => 'POS REGULER', 'description' => 'Ongkir manual reguler sementara', 'cost' => $regular, 'etd' => $defaultEtd],
+                ['service' => 'POS KILAT', 'description' => 'Ongkir manual cepat sementara', 'cost' => $fast, 'etd' => '1-2 hari'],
+            ],
+        ];
+
+        $services = $map[$courier] ?? [
+            ['service' => strtoupper($courier) . ' REG', 'description' => 'Ongkir manual reguler sementara', 'cost' => $regular, 'etd' => $defaultEtd],
+        ];
+
+        return array_map(function (array $service) use ($courier) {
+            $service['code'] = $courier;
+
+            return $service;
+        }, $services);
+    }
+
+    private function paymentConfigForProvince(?string $province): array
+    {
+        $defaultConfig = config('payment.default', []);
+        $provinceRules = (array) config('payment.province_rules', []);
+        $provinceConfig = $provinceRules[$this->normalizeProvinceKey($province)] ?? [];
+
+        return [
+            'methods' => array_replace_recursive(
+                (array) ($defaultConfig['methods'] ?? []),
+                (array) ($provinceConfig['methods'] ?? [])
+            ),
+            'transfer' => array_replace(
+                (array) ($defaultConfig['transfer'] ?? []),
+                (array) ($provinceConfig['transfer'] ?? [])
+            ),
+        ];
+    }
+
+    private function allowedPaymentMethodsForProvince(?string $province): array
+    {
+        return collect($this->paymentConfigForProvince($province)['methods'] ?? [])
+            ->filter(fn ($config) => !empty($config['enabled']))
+            ->keys()
+            ->values()
+            ->all();
+    }
+
+    private function normalizeProvinceKey(?string $province): string
+    {
+        $province = strtolower(trim((string) $province));
+        $province = preg_replace('/\s+/', ' ', $province);
+
+        return $province;
     }
 }
