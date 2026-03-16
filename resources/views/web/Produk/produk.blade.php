@@ -353,7 +353,16 @@
             <div class="row g-4">
                 @forelse ($produks as $produk)
                     @php
-                        $path = (string) ($produk->gambar_produk ?? '');
+                        $selectedColors = array_values(array_filter((array) request('warna', [])));
+
+                        $matchedVariant = $produk->varians
+                            ->first(function ($varian) use ($selectedColors) {
+                                return !empty($selectedColors)
+                                    && in_array($varian->warna, $selectedColors, true)
+                                    && !empty($varian->gambar_varian);
+                            });
+
+                        $path = (string) ($matchedVariant->gambar_varian ?? $produk->gambar_produk ?? '');
                         $path = ltrim(str_replace(['public/', 'storage/'], '', $path), '/');
 
                         $imgUrl = $path !== ''
