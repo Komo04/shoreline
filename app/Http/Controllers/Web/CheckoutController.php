@@ -11,6 +11,7 @@ use App\Models\TransaksiItem;
 use App\Models\User;
 use App\Notifications\AdminPembelianBaru;
 use App\Services\Shipping\KomerceOngkirService;
+use App\Support\ProductSelectionValidator;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Auth;
@@ -73,7 +74,7 @@ class CheckoutController extends Controller
         ));
     }
 
-    public function direct(Request $request)
+    public function direct(Request $request, ProductSelectionValidator $selectionValidator)
     {
         $userId = Auth::id();
         if (!$userId) {
@@ -86,25 +87,18 @@ class CheckoutController extends Controller
             'jumlah_produk' => 'required|integer|min:1',
         ]);
 
-        $varian = ProdukVarian::with('produk')
-            ->where('id', $request->varian_id)
-            ->where('produk_id', $request->produk_id)
-            ->first();
+        $validatedSelection = $selectionValidator->validate(
+            (int) $request->produk_id,
+            (int) $request->varian_id,
+            (int) $request->jumlah_produk
+        );
 
-        if (!$varian || !$varian->produk) {
-            return back()->with('error', 'Varian tidak valid untuk produk ini.');
+        if (! $validatedSelection['ok']) {
+            return back()->with('error', $validatedSelection['message']);
         }
 
-        $stok = (int) $varian->stok;
-        $qty = (int) $request->jumlah_produk;
-
-        if ($stok <= 0) {
-            return back()->with('error', 'Stok habis untuk varian ini.');
-        }
-
-        if ($qty > $stok) {
-            return back()->with('error', "Jumlah melebihi stok. Maksimal {$stok}.");
-        }
+        $varian = $validatedSelection['varian'];
+        $qty = $validatedSelection['qty'];
 
         session([
             'checkout.direct_item' => [

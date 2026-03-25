@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Web;
 use App\Http\Controllers\Controller;
 use App\Models\Keranjang;
 use App\Models\ProdukVarian;
+use App\Support\ProductSelectionValidator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -46,7 +47,7 @@ class KeranjangController extends Controller
     }
 
 
-    public function store(Request $request)
+    public function store(Request $request, ProductSelectionValidator $selectionValidator)
     {
         $request->validate([
             'produk_id' => 'required|exists:produks,id',
@@ -55,26 +56,19 @@ class KeranjangController extends Controller
         ]);
 
         $userId = Auth::id();
+        $validatedSelection = $selectionValidator->validate(
+            (int) $request->produk_id,
+            (int) $request->varian_id,
+            (int) $request->jumlah_produk
+        );
 
-        // pastikan varian milik produk
-        $varian = ProdukVarian::where('id', $request->varian_id)
-            ->where('produk_id', $request->produk_id)
-            ->first();
-
-        if (!$varian) {
-            return back()->with('error', 'Varian tidak valid untuk produk ini.');
+        if (! $validatedSelection['ok']) {
+            return back()->with('error', $validatedSelection['message']);
         }
 
-        $stok = (int) $varian->stok;
-        $qtyMasuk = (int) $request->jumlah_produk;
-
-        if ($stok <= 0) {
-            return back()->with('error', 'Stok habis untuk varian ini.');
-        }
-
-        if ($qtyMasuk > $stok) {
-            return back()->with('error', "Jumlah melebihi stok. Maksimal {$stok}.");
-        }
+        $varian = $validatedSelection['varian'];
+        $stok = $validatedSelection['stok'];
+        $qtyMasuk = $validatedSelection['qty'];
 
         $item = Keranjang::where('user_id', $userId)
             ->where('produk_id', $request->produk_id)

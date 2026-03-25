@@ -58,6 +58,7 @@ class TransaksiController extends Controller
     {
         $request->validate([
             'status_transaksi' => 'required|in:pending,menunggu_verifikasi,paid,diproses,dikirim,selesai,dibatalkan,expired,refund,refund_processing,partial_refund',
+            'no_resi' => 'nullable|string|max:100',
         ]);
 
         try {
@@ -74,6 +75,11 @@ class TransaksiController extends Controller
                 // Midtrans PAID hanya via webhook (sesuai rule kamu)
                 if ($trx->metode_pembayaran === 'midtrans' && $newStatus === 'paid') {
                     throw new \Exception('Transaksi Midtrans akan PAID otomatis via webhook.');
+                }
+
+                if ($newStatus === 'dikirim') {
+                    $this->shipTransaction($trx, (string) $request->input('no_resi', ''), $request->input('ekspedisi'));
+                    return;
                 }
 
                 $allowed = [
@@ -166,6 +172,9 @@ class TransaksiController extends Controller
                     ->lockForUpdate()
                     ->findOrFail($id);
 
+                $this->shipTransaction($trx, (string) $request->no_resi, $request->input('ekspedisi'));
+                return;
+
                 if (!in_array($trx->status_transaksi, ['paid', 'diproses'], true)) {
                     throw new \Exception('Transaksi belum siap dikirim.');
                 }
@@ -226,6 +235,48 @@ class TransaksiController extends Controller
                 'message' => $e->getMessage(),
                 'entity' => 'Transaksi',
             ]);
+        }
+    }
+
+    private function shipTransaction(Transaksi $trx, string $noResi, ?string $ekspedisi = null): void
+    {
+        if (!in_array($trx->status_transaksi, ['paid', 'diproses'], true)) {
+            throw new \Exception('Transaksi belum siap dikirim.');
+        }
+
+        $courier = strtolower(trim((string) ($trx->kurir_kode ?? '')));
+
+        if ($courier === '') {
+            throw new \Exception('Kurir pada transaksi belum tersimpan. Pastikan checkout menyimpan kurir_kode.');
+        }
+
+        if (filled($ekspedisi)) {
+            $inputCourier = strtolower(trim((string) $ekspedisi));
+            if ($inputCourier !== $courier) {
+                throw new \Exception("Ekspedisi tidak boleh diubah. Kurir transaksi adalah '{$courier}'.");
+            }
+        }
+
+        $resi = $this->normalizeDummyResi(
+            trim($noResi),
+            $courier,
+            (string) ($trx->kurir_layanan ?? '')
+        );
+
+        $oldStatus = (string) $trx->status_transaksi;
+
+        $trx->update([
+            'status_transaksi' => 'dikirim',
+            'ekspedisi'        => strtoupper($trx->kurir_kode ?? ''),
+            'no_resi'          => $resi,
+            'tanggal_dikirim'  => now(),
+        ]);
+
+        $trx->loadMissing('user');
+
+        if ($trx->user) {
+            $trx->user->notify(new UserStatusPesananDatabaseNotification($trx, $oldStatus, 'dikirim'));
+            $trx->user->notify(new UserStatusPesananDiupdate($trx, $oldStatus, 'dikirim'));
         }
     }
 

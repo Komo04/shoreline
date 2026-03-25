@@ -570,6 +570,20 @@
                                     @endforeach
                                 </select>
 
+                                @php
+                                    $updateStatusDummyResi = TransaksiController::suggestedDummyResi($transaksi->kurir_kode, $transaksi->kurir_layanan);
+                                @endphp
+
+                                <div class="mb-2" id="updateStatusResiWrap" style="display:none;">
+                                    <label class="form-label small text-muted">No Resi untuk status DIKIRIM</label>
+                                    <input name="no_resi" id="updateStatusResiInput" class="form-control" placeholder="Masukkan no resi">
+                                    @if($updateStatusDummyResi)
+                                        <div class="form-text">
+                                            Contoh format dummy: <b>{{ $updateStatusDummyResi }}</b>
+                                        </div>
+                                    @endif
+                                </div>
+
                                 <button class="btn btn-dark w-100" onclick="return confirm('Update status transaksi?')">
                                     Update Status
                                 </button>
@@ -658,6 +672,27 @@
 
 @push('scripts')
 <script>
+(function () {
+    const select = document.querySelector('.update-status-select');
+    const wrap = document.getElementById('updateStatusResiWrap');
+    const input = document.getElementById('updateStatusResiInput');
+
+    if (!select || !wrap || !input) return;
+
+    function syncResiField() {
+        const isDikirim = select.value === 'dikirim';
+        wrap.style.display = isDikirim ? 'block' : 'none';
+        input.required = isDikirim;
+
+        if (!isDikirim) {
+            input.value = '';
+        }
+    }
+
+    syncResiField();
+    select.addEventListener('change', syncResiField);
+})();
+
 (function () {
     const modalEl = document.getElementById('trackModalAdmin');
     if (!modalEl) return;
