@@ -127,7 +127,7 @@
         && (($refund->method ?? '') === 'manual')
         && (($refund->status ?? '') === 'processing');
 
-    $statusOptions = ['paid','diproses','dikirim','selesai','dibatalkan'];
+    $statusOptions = ['paid','diproses','selesai','dibatalkan'];
 @endphp
 
 <div class="container-fluid py-4">
