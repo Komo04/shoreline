@@ -112,11 +112,7 @@
 
     $isMidtrans = ($transaksi->metode_pembayaran === 'midtrans');
     $paymentType = (string) ($transaksi->midtrans_payment_type ?? '');
-    $refundableTypes = ['credit_card','gopay','shopeepay'];
-
-    $midtransAutoRefundSupported = $isMidtrans && $paymentType !== '' && in_array($paymentType, $refundableTypes, true);
     $midtransPaymentTypeUnknown  = $isMidtrans && $paymentType === '';
-    $midtransNeedsManualRefund   = $isMidtrans && $paymentType !== '' && !$midtransAutoRefundSupported;
 
     $showRefundSection = in_array($transaksi->status_transaksi, [
         'selesai','refund_processing','partial_refund','refund',
@@ -476,19 +472,9 @@
                                         <div class="divider"></div>
                                         <div class="hint">
                                             <div><b>Midtrans Payment Type:</b> {{ $paymentType !== '' ? $paymentType : '-' }}</div>
-                                            @if($paymentType === '')
-                                                <div class="text-warning fw-semibold mt-1">
-                                                    Payment type belum tersimpan → refund akan diarahkan ke <b>manual</b>.
-                                                </div>
-                                            @elseif($midtransAutoRefundSupported)
-                                                <div class="text-success fw-semibold mt-1">
-                                                    Channel mendukung <b>auto refund</b> (menunggu webhook setelah proses).
-                                                </div>
-                                            @else
-                                                <div class="text-warning fw-semibold mt-1">
-                                                    Channel tidak mendukung auto refund → perlu <b>manual finalize</b>.
-                                                </div>
-                                            @endif
+                                            <div class="text-warning fw-semibold mt-1">
+                                                Semua refund diproses via <b>manual finalize</b>.
+                                            </div>
                                         </div>
                                     @endif
 
@@ -532,19 +518,28 @@
                                             action="{{ route('admin.transaksi.refund.finalize', $transaksi->id) }}"
                                             onsubmit="return confirm('Dana sudah ditransfer? Finalize refund?');">
                                             @csrf
-                                            <button class="btn btn-danger w-100">Finalize Refund (Restore Stok)</button>
+                                            <div class="mb-2">
+                                                <label class="form-label small text-muted">Perlakuan stok setelah refund</label>
+                                                <select name="stock_action" class="form-select" required>
+                                                    <option value="discard">Jangan kembalikan ke stok (barang rusak)</option>
+                                                    <option value="restore">Kembalikan ke stok (barang masih layak jual)</option>
+                                                </select>
+                                            </div>
+                                            <button class="btn btn-danger w-100">Finalize Refund</button>
                                         </form>
-                                    @endif
-
-                                    @if(($refund->method ?? '') === 'midtrans' && ($refund->status ?? '') === 'processing')
-                                        <div class="alert alert-info mt-3 mb-0">
-                                            Refund via Midtrans sedang <b>processing</b>. Menunggu <b>webhook</b> untuk finalisasi.
-                                        </div>
                                     @endif
 
                                     @if(($refund->status ?? '') === 'failed')
                                         <div class="alert alert-danger mt-3 mb-0">
-                                            Refund <b>gagal</b>. Kamu bisa klik <b>Proses Refund</b> lagi (retry) atau ubah ke manual bila perlu.
+                                            Refund <b>gagal</b>. Kamu bisa klik <b>Proses Refund</b> lagi lalu finalize manual setelah transfer dana.
+                                        </div>
+                                    @endif
+
+                                    @if(($refund->status ?? '') === 'refunded')
+                                        <div class="alert alert-{{ $refund->stock_restored_at ? 'success' : 'secondary' }} mt-3 mb-0">
+                                            {{ $refund->stock_restored_at
+                                                ? 'Refund selesai dan stok sudah dikembalikan.'
+                                                : 'Refund selesai tanpa mengembalikan stok ke inventory jual.' }}
                                         </div>
                                     @endif
                                 @endif

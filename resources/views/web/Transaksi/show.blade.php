@@ -93,10 +93,6 @@
         // ===== Midtrans payment type =====
         $paymentType = (string) ($transaksi->midtrans_payment_type ?? '');
 
-        $refundableTypes = ['credit_card','gopay','shopeepay'];
-        $midtransAutoRefundSupported = $isMidtrans && $paymentType !== '' && in_array($paymentType, $refundableTypes, true);
-
-        $midtransNeedsManualRefund = $isMidtrans && ($paymentType !== '') && !$midtransAutoRefundSupported;
         $midtransPaymentTypeUnknown = $isMidtrans && $paymentType === '';
     @endphp
 
@@ -498,13 +494,13 @@
                             {{-- ✅ MIDTRANS --}}
                             @if($isMidtrans)
 
-                                @if($midtransNeedsManualRefund || $midtransPaymentTypeUnknown)
+                                @if(true)
                                     <div class="alert alert-warning">
                                         Pembayaran via <b>Midtrans</b>
                                         @if($paymentType)
                                             ({{ $paymentType }})
                                         @endif
-                                        kemungkinan <b>refund manual</b>. Isi rekening tujuan di bawah.
+                                        akan diproses dengan <b>manual finalize</b>. Isi rekening tujuan di bawah.
                                     </div>
 
                                     <div class="mb-2">
@@ -521,14 +517,14 @@
                                     </div>
                                 @else
                                     <div class="alert alert-info">
-                                        Refund via <b>Midtrans</b>. Admin akan memproses refund melalui Midtrans.
+                                        Refund via <b>Midtrans</b> tetap diproses dengan <b>manual finalize</b>.
                                     </div>
                                 @endif
 
                             {{-- ✅ NON MIDTRANS --}}
                             @else
                                 <div class="alert alert-warning">
-                                    Refund diproses <b>MANUAL</b>. Admin akan transfer dana ke rekening tujuan berikut.
+                                    Refund diproses <b>manual finalize</b>. Admin akan transfer dana ke rekening tujuan berikut.
                                 </div>
 
                                 <div class="mb-2">

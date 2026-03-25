@@ -312,139 +312,10 @@ class TransaksiController extends Controller
                     throw new \Exception('Amount refund tidak valid.');
                 }
 
-                if ($trx->metode_pembayaran === 'midtrans') {
-                    $orderId = $trx->midtrans_order_id ?: $trx->kode_transaksi;
-                    if (!$orderId) {
-                        throw new \Exception('Order ID Midtrans tidak ditemukan pada transaksi.');
-                    }
-
-                    $paymentType = (string) ($trx->midtrans_payment_type ?? '');
-                    $autoRefundSupported = ($paymentType !== '' && in_array($paymentType, self::MIDTRANS_REFUNDABLE_TYPES, true));
-
-                    if (!$autoRefundSupported) {
-                        if ($refund->method !== RefundRequest::METHOD_MANUAL) {
-                            $refund->update(['method' => RefundRequest::METHOD_MANUAL]);
-                        }
-
-                        if (in_array($refund->status, [RefundRequest::STATUS_REQUESTED, RefundRequest::STATUS_FAILED], true)) {
-                            $refund->update([
-                                'status' => RefundRequest::STATUS_PROCESSING,
-                                'midtrans_response' => [
-                                    'note' => $paymentType === ''
-                                        ? 'Payment type belum tersimpan. Refund akan diproses manual.'
-                                        : "Payment type '{$paymentType}' tidak mendukung refund otomatis. Refund manual diperlukan.",
-                                ],
-                                'synced_at' => now(),
-                            ]);
-                        }
-
-                        $trx->update(['status_transaksi' => 'refund_processing']);
-
-                        Pembayaran::updateOrCreate(
-                            ['transaksi_id' => $trx->id],
-                            [
-                                'metode_pembayaran'  => 'midtrans',
-                                'total_pembayaran'   => $trx->total_pembayaran,
-                                'status_pembayaran'  => 'refund_processing',
-                                'tanggal_pembayaran' => $trx->paid_at ?? now(),
-                                'bukti_transfer'     => null,
-                            ]
-                        );
-
-                        $result['ok'] = true;
-                        $result['message'] = 'Channel Midtrans ini perlu refund manual. Transfer manual lalu klik Finalize Manual Refund.';
-                        return;
-                    }
-
-                    if ($refund->status === RefundRequest::STATUS_REQUESTED) {
-                        $refund->update(['status' => RefundRequest::STATUS_PROCESSING]);
-                    }
-
-                    if ($refund->status === RefundRequest::STATUS_PROCESSING && $refund->midtrans_refund_key) {
-                        $trx->update(['status_transaksi' => 'refund_processing']);
-
-                        Pembayaran::updateOrCreate(
-                            ['transaksi_id' => $trx->id],
-                            [
-                                'metode_pembayaran'  => 'midtrans',
-                                'total_pembayaran'   => $trx->total_pembayaran,
-                                'status_pembayaran'  => 'refund_processing',
-                                'tanggal_pembayaran' => $trx->paid_at ?? now(),
-                                'bukti_transfer'     => null,
-                            ]
-                        );
-
-                        $result['ok'] = true;
-                        $result['message'] = 'Refund Midtrans sudah pernah dipanggil. Menunggu webhook untuk finalisasi.';
-                        return;
-                    }
-
-                    $refundKey = $refund->midtrans_refund_key ?: $this->makeRefundKey($trx);
-
-                    /** @var MidtransService $svc */
-                    $svc = app(MidtransService::class);
-                    $res = $svc->refund($orderId, $refundKey, $amount, $refund->reason ?: 'Refund');
-
-                    $refund->update([
-                        'method'              => RefundRequest::METHOD_MIDTRANS,
-                        'midtrans_refund_key' => $refundKey,
-                        'midtrans_request'    => [
-                            'refund_key'    => $refundKey,
-                            'amount'        => $amount,
-                            'reason'        => $refund->reason ?: 'Refund',
-                            'payment_type'  => $paymentType,
-                            'order_id'      => $orderId,
-                        ],
-                        'midtrans_response'   => $res['body'] ?? ['error' => ($res['error'] ?? 'unknown')],
-                        'synced_at'           => now(),
-                        'status'              => ($res['ok'] ?? false) ? RefundRequest::STATUS_PROCESSING : RefundRequest::STATUS_FAILED,
-                    ]);
-
-                    if (!($res['ok'] ?? false)) {
-                        Log::warning('MIDTRANS REFUND API FAILED', [
-                            'transaksi_id' => $trx->id,
-                            'order_id'     => $orderId,
-                            'refund_id'    => $refund->id,
-                            'payment_type' => $paymentType,
-                            'http_status'  => $res['http_status'] ?? null,
-                            'body'         => $res['body'] ?? null,
-                            'error'        => $res['error'] ?? null,
-                        ]);
-
-                        $result['ok'] = false;
-                        $result['message'] =
-                            (string) (data_get($res, 'body.status_message')
-                                ?: ('Midtrans error code: ' . (data_get($res, 'body.status_code') ?? '-'))
-                                ?: ($res['error'] ?? 'Refund Midtrans gagal.'));
-                        return;
-                    }
-
-                    $trx->update(['status_transaksi' => 'refund_processing']);
-
-                    Pembayaran::updateOrCreate(
-                        ['transaksi_id' => $trx->id],
-                        [
-                            'metode_pembayaran'  => 'midtrans',
-                            'total_pembayaran'   => $trx->total_pembayaran,
-                            'status_pembayaran'  => 'refund_processing',
-                            'tanggal_pembayaran' => $trx->paid_at ?? now(),
-                            'bukti_transfer'     => null,
-                        ]
-                    );
-
-                    $result['ok'] = true;
-                    $result['message'] = 'Refund Midtrans berhasil dipanggil. Menunggu webhook Midtrans untuk finalisasi.';
-                    return;
-                }
-
-                // NON-MIDTRANS -> finalize langsung
-                $this->restoreStockOnceForRefund($trx, $refund);
-
                 $refund->update([
                     'method'      => RefundRequest::METHOD_MANUAL,
-                    'status'      => RefundRequest::STATUS_REFUNDED,
+                    'status'      => RefundRequest::STATUS_PROCESSING,
                     'synced_at'   => now(),
-                    'refunded_at' => $refund->refunded_at ?? now(),
                 ]);
 
                 Pembayaran::updateOrCreate(
@@ -452,22 +323,22 @@ class TransaksiController extends Controller
                     [
                         'metode_pembayaran'  => $trx->metode_pembayaran,
                         'total_pembayaran'   => $trx->total_pembayaran,
-                        'status_pembayaran'  => 'refund',
+                        'status_pembayaran'  => 'refund_processing',
                         'tanggal_pembayaran' => $trx->paid_at ?? now(),
                         'bukti_transfer'     => $trx->pembayaran?->bukti_transfer,
                     ]
                 );
 
                 $oldStatus = (string) $trx->status_transaksi;
-                $trx->update(['status_transaksi' => 'refund']);
+                $trx->update(['status_transaksi' => 'refund_processing']);
 
-                if ($trx->user && $oldStatus !== 'refund') {
-                    $trx->user->notify(new UserStatusPesananDatabaseNotification($trx, $oldStatus, 'refund'));
-                    $trx->user->notify(new UserStatusPesananDiupdate($trx, $oldStatus, 'refund'));
+                if ($trx->user && $oldStatus !== 'refund_processing') {
+                    $trx->user->notify(new UserStatusPesananDatabaseNotification($trx, $oldStatus, 'refund_processing'));
+                    $trx->user->notify(new UserStatusPesananDiupdate($trx, $oldStatus, 'refund_processing'));
                 }
 
                 $result['ok'] = true;
-                $result['message'] = 'Refund manual selesai diproses.';
+                $result['message'] = 'Refund dipindahkan ke proses manual. Transfer dana lalu klik Finalize Refund.';
             });
 
             return back()->with('flash', [
@@ -490,8 +361,12 @@ class TransaksiController extends Controller
 
     public function finalizeManualRefund(Request $request, $id)
     {
+        $request->validate([
+            'stock_action' => 'required|in:restore,discard',
+        ]);
+
         try {
-            DB::transaction(function () use ($id) {
+            DB::transaction(function () use ($id, $request) {
                 $trx = Transaksi::with(['latestRefund', 'items', 'pembayaran', 'user'])
                     ->lockForUpdate()
                     ->findOrFail($id);
@@ -509,7 +384,9 @@ class TransaksiController extends Controller
                     throw new \Exception('Refund tidak bisa difinalisasi. Status: ' . $refund->status);
                 }
 
-                $this->restoreStockOnceForRefund($trx, $refund);
+                if ($request->input('stock_action') === 'restore') {
+                    $this->restoreStockOnceForRefund($trx, $refund);
+                }
 
                 $refund->update([
                     'status'      => RefundRequest::STATUS_REFUNDED,

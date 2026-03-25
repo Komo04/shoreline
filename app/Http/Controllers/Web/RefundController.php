@@ -7,7 +7,6 @@ use App\Models\RefundRequest;
 use App\Models\Transaksi;
 use App\Models\User;
 use App\Notifications\AdminRefundRequestedManual;
-use App\Notifications\AdminRefundRequestedMidtrans;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -47,26 +46,13 @@ class RefundController extends Controller
                 ]);
             }
 
-            $isMidtrans = $transaksi->metode_pembayaran === 'midtrans';
-            $paymentType = (string) ($transaksi->midtrans_payment_type ?? '');
-
-            $refundableTypes = ['credit_card', 'gopay', 'shopeepay'];
-            $midtransAutoRefundSupported = $isMidtrans
-                && $paymentType !== ''
-                && in_array($paymentType, $refundableTypes, true);
-
-            $needsManualRefund = $isMidtrans && ! $midtransAutoRefundSupported;
-
             $rules = [
                 'reason' => 'required|string|max:1000',
                 'proof' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
+                'bank_name' => 'required|string|max:100',
+                'account_number' => 'required|string|max:50',
+                'account_name' => 'required|string|max:100',
             ];
-
-            if (! $isMidtrans || $needsManualRefund) {
-                $rules['bank_name'] = 'required|string|max:100';
-                $rules['account_number'] = 'required|string|max:50';
-                $rules['account_name'] = 'required|string|max:100';
-            }
 
             $data = $request->validate($rules);
 
@@ -78,9 +64,7 @@ class RefundController extends Controller
             $newRefund = RefundRequest::create([
                 'user_id' => $userId,
                 'transaksi_id' => $transaksi->id,
-                'method' => $isMidtrans
-                    ? ($needsManualRefund ? RefundRequest::METHOD_MANUAL : RefundRequest::METHOD_MIDTRANS)
-                    : RefundRequest::METHOD_MANUAL,
+                'method' => RefundRequest::METHOD_MANUAL,
                 'status' => RefundRequest::STATUS_REQUESTED,
                 'amount' => (int) ($transaksi->total_pembayaran ?? 0),
                 'reason' => $data['reason'],
@@ -109,10 +93,6 @@ class RefundController extends Controller
             return;
         }
 
-        $notification = $refund->method === 'midtrans'
-            ? new AdminRefundRequestedMidtrans($refund, $trx)
-            : new AdminRefundRequestedManual($refund, $trx);
-
-        Notification::send($admins, $notification);
+        Notification::send($admins, new AdminRefundRequestedManual($refund, $trx));
     }
 }
