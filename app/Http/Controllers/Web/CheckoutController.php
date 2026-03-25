@@ -17,18 +17,22 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 use Sentry\Laravel\Facade as Sentry;
 
 class CheckoutController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         $userId = Auth::id();
+        $isDirectCheckout = $request->query('mode') === 'direct';
 
-        $keranjangs = Keranjang::with(['produk', 'varian'])
-            ->where('user_id', $userId)
-            ->get();
+        if (!$isDirectCheckout) {
+            $this->forgetDirectCheckoutItem();
+        }
+
+        $keranjangs = $this->resolveCheckoutItems($userId, $isDirectCheckout);
 
         if ($keranjangs->isEmpty()) {
             return redirect()->route('keranjang')->with('flash', [
@@ -64,8 +68,53 @@ class CheckoutController extends Controller
             'total',
             'alamats',
             'defaultPaymentConfig',
-            'paymentProfiles'
+            'paymentProfiles',
+            'isDirectCheckout'
         ));
+    }
+
+    public function direct(Request $request)
+    {
+        $userId = Auth::id();
+        if (!$userId) {
+            abort(403);
+        }
+
+        $request->validate([
+            'produk_id' => 'required|exists:produks,id',
+            'varian_id' => 'required|exists:produk_varians,id',
+            'jumlah_produk' => 'required|integer|min:1',
+        ]);
+
+        $varian = ProdukVarian::with('produk')
+            ->where('id', $request->varian_id)
+            ->where('produk_id', $request->produk_id)
+            ->first();
+
+        if (!$varian || !$varian->produk) {
+            return back()->with('error', 'Varian tidak valid untuk produk ini.');
+        }
+
+        $stok = (int) $varian->stok;
+        $qty = (int) $request->jumlah_produk;
+
+        if ($stok <= 0) {
+            return back()->with('error', 'Stok habis untuk varian ini.');
+        }
+
+        if ($qty > $stok) {
+            return back()->with('error', "Jumlah melebihi stok. Maksimal {$stok}.");
+        }
+
+        session([
+            'checkout.direct_item' => [
+                'produk_id' => (int) $varian->produk_id,
+                'varian_id' => (int) $varian->id,
+                'jumlah_produk' => $qty,
+            ],
+        ]);
+
+        return redirect()->route('checkout', ['mode' => 'direct']);
     }
 
     public function store(Request $request, KomerceOngkirService $svc)
@@ -97,9 +146,8 @@ class CheckoutController extends Controller
             ]);
         }
 
-        $keranjangs = Keranjang::with(['produk', 'varian'])
-            ->where('user_id', $userId)
-            ->get();
+        $isDirectCheckout = $request->input('checkout_mode') === 'direct';
+        $keranjangs = $this->resolveCheckoutItems($userId, $isDirectCheckout);
 
         if ($keranjangs->isEmpty()) {
             return redirect()->route('keranjang')->with('flash', [
@@ -133,7 +181,7 @@ class CheckoutController extends Controller
         }
 
         try {
-            return DB::transaction(function () use ($request, $userId, $keranjangs, $svc, $totalWeight) {
+            return DB::transaction(function () use ($request, $userId, $keranjangs, $svc, $totalWeight, $isDirectCheckout) {
                 $subtotal = 0;
 
                 foreach ($keranjangs as $item) {
@@ -279,8 +327,12 @@ class CheckoutController extends Controller
                     ]);
                 }
 
-                Keranjang::where('user_id', $userId)->delete();
-                Cache::forget("cart_count:user:{$userId}");
+                if ($isDirectCheckout) {
+                    $this->forgetDirectCheckoutItem();
+                } else {
+                    Keranjang::where('user_id', $userId)->delete();
+                    Cache::forget("cart_count:user:{$userId}");
+                }
 
                 DB::afterCommit(function () use ($transaksi): void {
                     User::where('user_role', 'admin')
@@ -365,9 +417,8 @@ class CheckoutController extends Controller
                 );
             }
 
-            $keranjangs = Keranjang::with(['produk', 'varian'])
-                ->where('user_id', $userId)
-                ->get();
+            $isDirectCheckout = $request->input('checkout_mode') === 'direct';
+            $keranjangs = $this->resolveCheckoutItems($userId, $isDirectCheckout);
 
             if ($keranjangs->isEmpty()) {
                 return response()->json([
@@ -583,6 +634,80 @@ class CheckoutController extends Controller
             ->keys()
             ->values()
             ->all();
+    }
+
+    private function resolveCheckoutItems(int $userId, bool $preferDirect = false): Collection
+    {
+        $directItem = $preferDirect ? $this->getDirectCheckoutItem() : null;
+
+        if ($directItem) {
+            return collect([$directItem]);
+        }
+
+        return Keranjang::with(['produk', 'varian'])
+            ->where('user_id', $userId)
+            ->get();
+    }
+
+    private function getDirectCheckoutItem(): ?object
+    {
+        $payload = session('checkout.direct_item');
+
+        if (!is_array($payload)) {
+            return null;
+        }
+
+        $produkId = (int) ($payload['produk_id'] ?? 0);
+        $varianId = (int) ($payload['varian_id'] ?? 0);
+        $qty = (int) ($payload['jumlah_produk'] ?? 0);
+
+        if ($produkId < 1 || $varianId < 1 || $qty < 1) {
+            $this->forgetDirectCheckoutItem();
+            return null;
+        }
+
+        $varian = ProdukVarian::with('produk')
+            ->where('id', $varianId)
+            ->where('produk_id', $produkId)
+            ->first();
+
+        if (!$varian || !$varian->produk) {
+            $this->forgetDirectCheckoutItem();
+            return null;
+        }
+
+        $stok = (int) $varian->stok;
+
+        if ($stok < 1) {
+            $this->forgetDirectCheckoutItem();
+            return null;
+        }
+
+        if ($qty > $stok) {
+            $qty = $stok;
+
+            session([
+                'checkout.direct_item' => [
+                    'produk_id' => $produkId,
+                    'varian_id' => $varianId,
+                    'jumlah_produk' => $qty,
+                ],
+            ]);
+        }
+
+        return (object) [
+            'id' => null,
+            'user_id' => Auth::id(),
+            'produk_id' => $produkId,
+            'varian_id' => $varianId,
+            'jumlah_produk' => $qty,
+            'produk' => $varian->produk,
+            'varian' => $varian,
+        ];
+    }
+    private function forgetDirectCheckoutItem(): void
+    {
+        session()->forget('checkout.direct_item');
     }
 
     private function normalizeProvinceKey(?string $province): string

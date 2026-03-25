@@ -287,11 +287,20 @@
                     <button type="submit" id="btnCart" class="btn btn-dark w-100 rounded-pill">
                         Tambah ke Keranjang
                     </button>
-                </form>
 
-                <a href="{{ route('keranjang') }}" class="btn btn-outline-dark w-100 rounded-pill mt-2">
-                    Checkout
-                </a>
+                    @auth
+                        <button type="submit"
+                                class="btn btn-outline-dark w-100 rounded-pill mt-2"
+                                formaction="{{ route('checkout.direct') }}"
+                                formmethod="POST">
+                            Checkout
+                        </button>
+                    @else
+                        <a href="{{ route('login') }}" class="btn btn-outline-dark w-100 rounded-pill mt-2">
+                            Checkout
+                        </a>
+                    @endauth
+                </form>
             @endif
 
             @if(!empty($kChips))

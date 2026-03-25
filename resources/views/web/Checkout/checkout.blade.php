@@ -5,6 +5,7 @@
 @php
     $defaultPaymentConfig = $defaultPaymentConfig ?? ['methods' => [], 'transfer' => []];
     $paymentProfiles = $paymentProfiles ?? [];
+    $isDirectCheckout = $isDirectCheckout ?? false;
 @endphp
 <div class="container py-5">
 
@@ -236,6 +237,7 @@
 
                 <form action="{{ route('checkout.store') }}" method="POST" id="formCheckout">
                     @csrf
+                    <input type="hidden" name="checkout_mode" value="{{ $isDirectCheckout ? 'direct' : 'cart' }}">
 
                     {{-- HIDDEN ONGKIR --}}
                     <input type="hidden" name="ongkir" id="ongkir" value="">
@@ -678,6 +680,7 @@
 <script>
 (function () {
   const totalBarang = {{ (int) $total }};
+  const checkoutMode = @json($isDirectCheckout ? 'direct' : 'cart');
 
   const form = document.getElementById('formCheckout');
   const alamatRadios = document.querySelectorAll('input[name="alamat_id"]');
@@ -752,7 +755,11 @@
         'Content-Type': 'application/json',
         'X-CSRF-TOKEN': "{{ csrf_token() }}"
       },
-      body: JSON.stringify({ alamat_id: alamatId, courier })
+      body: JSON.stringify({
+        alamat_id: alamatId,
+        courier,
+        checkout_mode: checkoutMode
+      })
     });
 
     const json = await res.json().catch(() => null);

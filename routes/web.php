@@ -100,6 +100,7 @@ Route::middleware(['auth', 'active'])->group(function () {
 
     // CHECKOUT
     Route::get('/checkout', [CheckoutController::class, 'index'])->name('checkout');
+    Route::post('/checkout/direct', [CheckoutController::class, 'direct'])->name('checkout.direct');
     Route::post('/checkout', [CheckoutController::class, 'store'])->name('checkout.store');
     Route::post('/checkout/shipping-options', [CheckoutController::class, 'shippingOptions'])->name('checkout.shippingOptions');
 
