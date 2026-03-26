@@ -252,7 +252,7 @@
                                 <div class="x-sub">Pilih alamat pengiriman.</div>
                             </div>
 
-                            <a href="{{ route('alamat.create') }}" class="btn btn-dark btn-sm pill">
+                            <a href="{{ route('alamat.create', $isDirectCheckout ? ['mode' => 'direct'] : []) }}" class="btn btn-dark btn-sm pill">
                                 + Tambah
                             </a>
                         </div>
@@ -311,7 +311,7 @@
                                                     @endif
 
                                                     <li>
-                                                        <a class="dropdown-item" href="{{ route('alamat.edit', $alamat->id) }}">Edit</a>
+                                                        <a class="dropdown-item" href="{{ route('alamat.edit', [$alamat->id] + ($isDirectCheckout ? ['mode' => 'direct'] : [])) }}">Edit</a>
                                                     </li>
 
                                                     <li>
@@ -518,6 +518,7 @@
                               class="d-none">
                             @csrf
                             @method('PUT')
+                            <input type="hidden" name="checkout_mode" value="{{ $isDirectCheckout ? 'direct' : 'cart' }}">
                         </form>
                     @endif
 
@@ -527,6 +528,7 @@
                           class="d-none">
                         @csrf
                         @method('DELETE')
+                        <input type="hidden" name="checkout_mode" value="{{ $isDirectCheckout ? 'direct' : 'cart' }}">
                     </form>
 
                 @endforeach

@@ -32,9 +32,10 @@
       <div class="card border-0 shadow-sm">
         <div class="card-body p-4 p-md-5">
 
-          <form action="{{ route('alamat.update', $alamat->id) }}" method="POST">
+          <form action="{{ route('alamat.update', [$alamat->id] + (request()->query('mode') === 'direct' ? ['mode' => 'direct'] : [])) }}" method="POST">
             @csrf
             @method('PUT')
+            <input type="hidden" name="checkout_mode" value="{{ old('checkout_mode', request()->query('mode') === 'direct' ? 'direct' : 'cart') }}">
 
             <div class="row g-4">
 
@@ -200,7 +201,7 @@
                   <button type="submit" class="btn btn-dark btn-lg rounded-pill">
                     Update Alamat
                   </button>
-                  <a href="{{ route('checkout') }}" class="btn btn-outline-secondary btn-lg rounded-pill">
+                  <a href="{{ route('checkout', request()->query('mode') === 'direct' ? ['mode' => 'direct'] : []) }}" class="btn btn-outline-secondary btn-lg rounded-pill">
                     Kembali
                   </a>
                 </div>

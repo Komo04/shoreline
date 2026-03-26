@@ -9,6 +9,13 @@ use Illuminate\Support\Facades\Auth;
 
 class AlamatController extends Controller
 {
+    private function redirectToCheckout(Request $request)
+    {
+        $mode = $request->input('checkout_mode', $request->query('mode'));
+
+        return redirect()->route('checkout', $mode === 'direct' ? ['mode' => 'direct'] : []);
+    }
+
     public function index()
     {
         $alamats = Alamat::where('user_id', Auth::id())
@@ -52,25 +59,25 @@ class AlamatController extends Controller
 
         Alamat::create($validated);
 
-       return redirect()->route('checkout')->with('flash', [
-  'type' => 'success',
-  'action' => 'create',
-  'entity' => 'Alamat',
-]);
+        return $this->redirectToCheckout($request)->with('flash', [
+            'type' => 'success',
+            'action' => 'create',
+            'entity' => 'Alamat',
+        ]);
     }
 
-    public function setDefault(Alamat $alamat)
+    public function setDefault(Request $request, Alamat $alamat)
     {
         abort_if($alamat->user_id !== Auth::id(), 403);
 
         Alamat::where('user_id', Auth::id())->update(['is_default' => false]);
         $alamat->update(['is_default' => true]);
 
-        return back()->with('flash', [
-  'type' => 'success',
-  'action' => 'update',
-  'entity' => 'Alamat Default',
-]);
+        return $this->redirectToCheckout($request)->with('flash', [
+            'type' => 'success',
+            'action' => 'update',
+            'entity' => 'Alamat Default',
+        ]);
     }
 
     public function edit(Alamat $alamat)
@@ -103,14 +110,14 @@ class AlamatController extends Controller
 
         $alamat->update($validated);
 
-        return redirect()->route('checkout')->with('flash', [
-  'type' => 'success',
-  'action' => 'update',
-  'entity' => 'Alamat',
-]);
+        return $this->redirectToCheckout($request)->with('flash', [
+            'type' => 'success',
+            'action' => 'update',
+            'entity' => 'Alamat',
+        ]);
     }
 
-    public function destroy(Alamat $alamat)
+    public function destroy(Request $request, Alamat $alamat)
     {
         abort_if($alamat->user_id !== Auth::id(), 403);
 
@@ -126,10 +133,10 @@ class AlamatController extends Controller
             }
         }
 
-        return back()->with('flash', [
-  'type' => 'success',
-  'action' => 'delete',
-  'entity' => 'Alamat',
-]);
+        return $this->redirectToCheckout($request)->with('flash', [
+            'type' => 'success',
+            'action' => 'delete',
+            'entity' => 'Alamat',
+        ]);
     }
 }
