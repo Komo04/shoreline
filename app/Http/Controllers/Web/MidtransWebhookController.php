@@ -135,7 +135,7 @@ class MidtransWebhookController extends Controller
                     return;
                 }
 
-                // Simpan data midtrans ke transaksi (kalau belum)
+                // Simpan data midtrans ke transaksi
                 if ($trx->midtrans_order_id !== $orderId) {
                     $trx->midtrans_order_id = $orderId;
                 }

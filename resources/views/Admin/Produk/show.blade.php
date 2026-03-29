@@ -198,7 +198,7 @@
                                 <td class="fw-medium">{{ $varian->warna ?: '-' }}</td>
                                 <td>{{ $varian->ukuran ?: '-' }}</td>
                                 <td>
-                                    <span class="badge {{ $varian->stok > 5 ? 'bg-success-subtle text-success' : 'bg-warning-subtle text-dark' }}">
+                                     <span class="badge {{ $varian->stok > 5 ? 'bg-success-subtle text-success' : 'bg-warning-subtle text-dark' }}">
                                         {{ $varian->stok }}
                                     </span>
                                 </td>

@@ -3,13 +3,13 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-
+use Illuminate\Support\Facades\Auth;
 
 class AdminNotificationController extends Controller
 {
     public function index()
     {
-        $user = auth()->user();
+        $user = Auth::user();
         $notifications = $user->notifications()->latest()->paginate(20);
 
         return view('Admin.Notifikasi.notif', compact('notifications'));
@@ -17,7 +17,7 @@ class AdminNotificationController extends Controller
 
     public function markAsRead(string $id)
     {
-        $n = auth()->user()->notifications()->where('id', $id)->firstOrFail();
+        $n = Auth::user()->notifications()->where('id', $id)->firstOrFail();
         $n->markAsRead();
 
         return back();
@@ -25,7 +25,7 @@ class AdminNotificationController extends Controller
 
     public function markAllAsRead()
     {
-        auth()->user()->unreadNotifications->markAsRead();
+        Auth::user()->unreadNotifications->markAsRead();
         return back();
     }
 }
