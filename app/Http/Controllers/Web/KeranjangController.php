@@ -13,6 +13,19 @@ use Illuminate\Support\Facades\DB;
 
 class KeranjangController extends Controller
 {
+    private function ukuranOrderSql(): string
+    {
+        return "CASE ukuran
+            WHEN 'XS' THEN 1
+            WHEN 'S' THEN 2
+            WHEN 'M' THEN 3
+            WHEN 'L' THEN 4
+            WHEN 'XL' THEN 5
+            WHEN 'One Size' THEN 6
+            ELSE 99
+        END";
+    }
+
     private function forgetCartCountCache(?int $userId): void
     {
         if ($userId) {
@@ -36,7 +49,7 @@ class KeranjangController extends Controller
         $produkIds = $keranjangs->pluck('produk_id')->unique()->values();
         $varians = ProdukVarian::whereIn('produk_id', $produkIds)
             ->orderBy('warna')
-            ->orderBy('ukuran')
+            ->orderByRaw($this->ukuranOrderSql())
             ->get()
             ->groupBy('produk_id');
 

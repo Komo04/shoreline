@@ -11,6 +11,19 @@ use Illuminate\Validation\Rule;
 
 class ProdukVarianController extends Controller
 {
+    private function ukuranOrderSql(): string
+    {
+        return "CASE ukuran
+            WHEN 'XS' THEN 1
+            WHEN 'S' THEN 2
+            WHEN 'M' THEN 3
+            WHEN 'L' THEN 4
+            WHEN 'XL' THEN 5
+            WHEN 'One Size' THEN 6
+            ELSE 99
+        END";
+    }
+
     public function index(Request $request, $produk_id)
     {
         $produk = Produk::findOrFail($produk_id);
@@ -35,7 +48,7 @@ class ProdukVarianController extends Controller
 
         $varians = $query
             ->orderBy('warna')
-            ->orderBy('ukuran')
+            ->orderByRaw($this->ukuranOrderSql())
             ->paginate(10)
             ->withQueryString();
 

@@ -11,6 +11,18 @@ use Illuminate\Http\Request;
 
 class ProdukController extends Controller
 {
+    private function ukuranOrderSql(): string
+    {
+        return "CASE ukuran
+            WHEN 'XS' THEN 1
+            WHEN 'S' THEN 2
+            WHEN 'M' THEN 3
+            WHEN 'L' THEN 4
+            WHEN 'XL' THEN 5
+            WHEN 'One Size' THEN 6
+            ELSE 99
+        END";
+    }
 
     public function index(Request $request)
     {
@@ -22,7 +34,7 @@ class ProdukController extends Controller
 
         // ambil warna & ukuran dari varian (yang ada di DB)
         $colors = ProdukVarian::select('warna')->distinct()->orderBy('warna')->pluck('warna');
-        $sizes  = ProdukVarian::select('ukuran')->distinct()->orderBy('ukuran')->pluck('ukuran');
+        $sizes  = ProdukVarian::select('ukuran')->distinct()->orderByRaw($this->ukuranOrderSql())->pluck('ukuran');
 
         // ====== Query Produk ======
         $query = Produk::query()
