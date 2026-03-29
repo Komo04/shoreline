@@ -50,7 +50,7 @@
         <h4 class="fw-bold mb-0">Laporan Pendapatan</h4>
 
         <a class="btn btn-primary"
-           href="{{ route('admin.laporan.pendapatan.cetak', ['start' => $start->toDateString(), 'end' => $end->toDateString()]) }}"
+           href="{{ route('admin.laporan.pendapatan.cetak', ['start' => $start->toDateString(), 'end' => $end->toDateString(), 'sort' => $sort]) }}"
            target="_blank">
             <i class="bi bi-printer-fill me-1"></i> Cetak
         </a>
@@ -67,7 +67,14 @@
                     <label class="form-label">Sampai Tanggal</label>
                     <input type="date" name="end" class="form-control" value="{{ $end->toDateString() }}">
                 </div>
-                <div class="col-md-4 d-flex align-items-end gap-2">
+                <div class="col-md-2">
+                    <label class="form-label">Urutan</label>
+                    <select name="sort" class="form-select">
+                        <option value="desc" {{ $sort === 'desc' ? 'selected' : '' }}>Terbaru</option>
+                        <option value="asc" {{ $sort === 'asc' ? 'selected' : '' }}>Terlama</option>
+                    </select>
+                </div>
+                <div class="col-md-2 d-flex align-items-end gap-2">
                     <button class="btn btn-success">Tampilkan</button>
                     <a class="btn btn-outline-secondary" href="{{ route('admin.laporan.pendapatan') }}">Reset</a>
                 </div>
@@ -83,6 +90,7 @@
                     Periode:
                     <strong>{{ $start->format('d M Y') }}</strong> s/d
                     <strong>{{ $end->format('d M Y') }}</strong>
+                    <span class="ms-2 badge text-bg-light">Urutan: {{ $sort === 'asc' ? 'ASC' : 'DESC' }}</span>
                 </div>
 
                 <div class="fs-5">
@@ -96,7 +104,10 @@
                     <thead class="table-light">
                         <tr>
                             <th style="width:60px;">No</th>
-                            <th>Tgl Bayar</th>
+                            <th>
+                                Tgl Bayar
+                                <span class="text-muted small">{{ $sort === 'asc' ? '↑' : '↓' }}</span>
+                            </th>
                             <th>Kode Transaksi</th>
                             <th>Pelanggan</th>
                             <th>Metode</th>
