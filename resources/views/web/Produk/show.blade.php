@@ -280,7 +280,7 @@
                         <button type="button" class="btn btn-outline-dark" id="btnPlus">+</button>
 
                         <small class="text-muted ms-2">
-                            stok: <span id="maxQtyText">0</span>
+                            Stok: <span id="maxQtyText">0</span>
                         </small>
                     </div>
 
