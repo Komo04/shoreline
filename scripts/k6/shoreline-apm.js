@@ -7,6 +7,7 @@ const SCENARIO = (__ENV.SCENARIO || 'light').toLowerCase();
 
 const USER_EMAIL = __ENV.USER_EMAIL || '';
 const USER_PASSWORD = __ENV.USER_PASSWORD || '';
+const USER_ACCOUNTS = __ENV.USER_ACCOUNTS || '';
 
 const ADMIN_EMAIL = __ENV.ADMIN_EMAIL || '';
 const ADMIN_PASSWORD = __ENV.ADMIN_PASSWORD || '';
@@ -15,6 +16,31 @@ const ADDRESS_ID = __ENV.ADDRESS_ID || '';
 const COURIER = (__ENV.COURIER || 'jne').toLowerCase();
 
 const THINK_TIME = Number(__ENV.THINK_TIME || 1);
+
+let customerSessionReady = false;
+let adminSessionReady = false;
+
+function parseCustomerAccounts() {
+    if (!USER_ACCOUNTS.trim()) {
+        return [];
+    }
+
+    return USER_ACCOUNTS.split(/[;\n]+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((entry) => {
+            const [email = '', password = '', addressId = ''] = entry.split('|').map((part) => part.trim());
+
+            return {
+                email,
+                password,
+                addressId,
+            };
+        })
+        .filter((account) => account.email && account.password);
+}
+
+const CUSTOMER_ACCOUNTS = parseCustomerAccounts();
 
 function buildOptions() {
     const presets = {
@@ -77,6 +103,16 @@ function jsonParams(name) {
 
 function htmlBody(response) {
     return typeof response.body === 'string' ? response.body : '';
+}
+
+function isLoginPage(response) {
+    const body = htmlBody(response);
+
+    return (
+        body.includes('<form method="POST" action=') &&
+        body.includes('name="email"') &&
+        body.includes('name="password"')
+    );
 }
 
 function extractCsrfToken(response) {
@@ -168,29 +204,44 @@ function login(email, password, label) {
 
     check(res, {
         [`${label} login berhasil`]: (r) =>
-            r.status < 400 && !htmlBody(r).includes('name="email"'),
+            r.status < 400 && !isLoginPage(r),
     });
 
-    return res.status < 400;
+    return res.status < 400 && !isLoginPage(res);
+}
+
+function currentCustomerAccount() {
+    if (CUSTOMER_ACCOUNTS.length > 0) {
+        return CUSTOMER_ACCOUNTS[(__VU - 1) % CUSTOMER_ACCOUNTS.length];
+    }
+
+    return {
+        email: USER_EMAIL,
+        password: USER_PASSWORD,
+        addressId: ADDRESS_ID,
+    };
 }
 
 function visitCheckout() {
     const res = http.get(url('/checkout'), defaultParams('GET /checkout'));
     check(res, {
-        'checkout terbuka atau redirect valid': (r) => r.status < 400,
+        'checkout terbuka dan session valid': (r) => r.status < 400 && !isLoginPage(r),
     });
     return res;
 }
 
 function hitShippingOptions() {
-    if (!ADDRESS_ID) {
+    const account = currentCustomerAccount();
+    const addressId = account.addressId || ADDRESS_ID;
+
+    if (!addressId) {
         return null;
     }
 
     const res = http.post(
         url('/checkout/shipping-options'),
         {
-            alamat_id: ADDRESS_ID,
+            alamat_id: addressId,
             courier: COURIER,
         },
         jsonParams('POST /checkout/shipping-options')
@@ -206,13 +257,14 @@ function hitShippingOptions() {
 function visitOrders() {
     const res = http.get(url('/pesanan'), defaultParams('GET /pesanan'));
     check(res, {
-        'pesanan terbuka atau redirect valid': (r) => r.status < 400,
+        'pesanan terbuka dan session valid': (r) => r.status < 400 && !isLoginPage(r),
     });
     return res;
 }
 
 function visitOrderDetail(ordersResponse) {
     const detailPath =
+        firstRegexMatch(ordersResponse, /href="([^"]*\/pesanan\/\d+(?:#refund)?[^"]*)"/i) ||
         firstHrefBySelector(ordersResponse, 'a[href*="/pesanan/"]') ||
         firstRegexMatch(ordersResponse, /href="([^"]*\/pesanan\/\d+[^"]*)"/i);
 
@@ -224,6 +276,26 @@ function visitOrderDetail(ordersResponse) {
     assertOk(res, 'detail pesanan');
 
     return { response: res, path: detailPath };
+}
+
+function ensureCustomerSession() {
+    const account = currentCustomerAccount();
+
+    if (customerSessionReady) {
+        return true;
+    }
+
+    customerSessionReady = login(account.email, account.password, `customer ${account.email}`);
+    return customerSessionReady;
+}
+
+function ensureAdminSession() {
+    if (adminSessionReady) {
+        return true;
+    }
+
+    adminSessionReady = login(ADMIN_EMAIL, ADMIN_PASSWORD, 'admin');
+    return adminSessionReady;
 }
 
 function hitOrderStatus(orderDetailResponse, orderDetailPath) {
@@ -287,12 +359,14 @@ function userJourney() {
         sleep(THINK_TIME);
     });
 
-    if (!USER_EMAIL || !USER_PASSWORD) {
+    const account = currentCustomerAccount();
+
+    if (!account.email || !account.password) {
         return;
     }
 
     group('Customer pages', function () {
-        const loggedIn = login(USER_EMAIL, USER_PASSWORD, 'customer');
+        const loggedIn = ensureCustomerSession();
         sleep(THINK_TIME);
 
         if (!loggedIn) {
@@ -327,7 +401,7 @@ export function customerFlow() {
 
 export function adminFlow() {
     group('Admin login and pages', function () {
-        const loggedIn = login(ADMIN_EMAIL, ADMIN_PASSWORD, 'admin');
+        const loggedIn = ensureAdminSession();
         sleep(THINK_TIME);
 
         if (!loggedIn) {
@@ -341,4 +415,3 @@ export function adminFlow() {
         sleep(THINK_TIME);
     });
 }
-
