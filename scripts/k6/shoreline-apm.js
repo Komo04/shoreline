@@ -437,8 +437,14 @@ function userJourney() {
             return;
         }
 
-        if (productDetail?.response) {
-            addToCart(productDetail.response);
+        if (productDetail?.path) {
+            const authenticatedProductDetail = http.get(
+                url(productDetail.path),
+                defaultParams('GET /produk/{produk} authenticated')
+            );
+            assertOk(authenticatedProductDetail, 'detail produk setelah login');
+
+            addToCart(authenticatedProductDetail);
             sleep(THINK_TIME);
         }
 
