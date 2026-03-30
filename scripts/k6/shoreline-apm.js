@@ -11,6 +11,7 @@ const USER_ACCOUNTS = __ENV.USER_ACCOUNTS || '';
 
 const ADMIN_EMAIL = __ENV.ADMIN_EMAIL || '';
 const ADMIN_PASSWORD = __ENV.ADMIN_PASSWORD || '';
+const ADMIN_ACCOUNTS = __ENV.ADMIN_ACCOUNTS || '';
 
 const ADDRESS_ID = __ENV.ADDRESS_ID || '';
 const COURIER = (__ENV.COURIER || 'jne').toLowerCase();
@@ -20,27 +21,29 @@ const THINK_TIME = Number(__ENV.THINK_TIME || 1);
 let customerSessionReady = false;
 let adminSessionReady = false;
 
-function parseCustomerAccounts() {
-    if (!USER_ACCOUNTS.trim()) {
+function parseAccounts(rawAccounts, withAddressId = false) {
+    if (!rawAccounts.trim()) {
         return [];
     }
 
-    return USER_ACCOUNTS.split(/[;\n]+/)
+    return rawAccounts.split(/[;\n]+/)
         .map((entry) => entry.trim())
         .filter(Boolean)
         .map((entry) => {
             const [email = '', password = '', addressId = ''] = entry.split('|').map((part) => part.trim());
+            const account = { email, password };
 
-            return {
-                email,
-                password,
-                addressId,
-            };
+            if (withAddressId) {
+                account.addressId = addressId;
+            }
+
+            return account;
         })
         .filter((account) => account.email && account.password);
 }
 
-const CUSTOMER_ACCOUNTS = parseCustomerAccounts();
+const CUSTOMER_ACCOUNTS = parseAccounts(USER_ACCOUNTS, true);
+const ADMIN_ACCOUNT_LIST = parseAccounts(ADMIN_ACCOUNTS);
 
 function buildOptions() {
     const presets = {
@@ -266,7 +269,8 @@ function clearCart() {
     const cartPage = http.get(url('/keranjang'), defaultParams('GET /keranjang'));
 
     check(cartPage, {
-        'keranjang terbuka dan session valid': (r) => r.status < 400 && !isLoginPage(r),
+        'keranjang terbuka': (r) => r.status < 400,
+        'keranjang session valid': (r) => !isLoginPage(r),
     });
 
     if (isLoginPage(cartPage)) {
@@ -361,6 +365,17 @@ function currentCustomerAccount() {
     };
 }
 
+function currentAdminAccount() {
+    if (ADMIN_ACCOUNT_LIST.length > 0) {
+        return ADMIN_ACCOUNT_LIST[(__VU - 1) % ADMIN_ACCOUNT_LIST.length];
+    }
+
+    return {
+        email: ADMIN_EMAIL,
+        password: ADMIN_PASSWORD,
+    };
+}
+
 function visitCheckout() {
     const res = http.get(url('/checkout'), defaultParams('GET /checkout'));
     check(res, {
@@ -451,11 +466,13 @@ function ensureCustomerSession(force = false) {
 }
 
 function ensureAdminSession() {
+    const account = currentAdminAccount();
+
     if (adminSessionReady) {
         return true;
     }
 
-    adminSessionReady = login(ADMIN_EMAIL, ADMIN_PASSWORD, 'admin');
+    adminSessionReady = login(account.email, account.password, `admin ${account.email}`);
     return adminSessionReady;
 }
 
@@ -508,6 +525,38 @@ function visitRevenueReport() {
     return { desc, asc };
 }
 
+function visitAdminTransactions() {
+    const res = http.get(url('/admin/transaksi'), defaultParams('GET /admin/transaksi'));
+    check(res, {
+        'admin transaksi terbuka': (r) => r.status < 400,
+    });
+    return res;
+}
+
+function visitAdminPayments() {
+    const res = http.get(url('/admin/pembayaran'), defaultParams('GET /admin/pembayaran'));
+    check(res, {
+        'admin pembayaran terbuka': (r) => r.status < 400,
+    });
+    return res;
+}
+
+function visitAdminCustomers() {
+    const res = http.get(url('/admin/customer'), defaultParams('GET /admin/customer'));
+    check(res, {
+        'admin customer terbuka': (r) => r.status < 400,
+    });
+    return res;
+}
+
+function visitAdminProducts() {
+    const res = http.get(url('/admin/produk'), defaultParams('GET /admin/produk'));
+    check(res, {
+        'admin produk terbuka': (r) => r.status < 400,
+    });
+    return res;
+}
+
 function userJourney() {
     let productDetail = null;
 
@@ -536,14 +585,7 @@ function userJourney() {
             return;
         }
 
-        let cartReady = clearCart();
-        if (!cartReady) {
-            customerSessionReady = false;
-            if (!ensureCustomerSession(true)) {
-                return;
-            }
-            cartReady = clearCart();
-        }
+        const cartReady = clearCart();
         sleep(THINK_TIME);
 
         if (cartReady && productDetail?.path) {
@@ -607,6 +649,18 @@ export function adminFlow() {
         }
 
         visitAdminDashboard();
+        sleep(THINK_TIME);
+
+        visitAdminTransactions();
+        sleep(THINK_TIME);
+
+        visitAdminPayments();
+        sleep(THINK_TIME);
+
+        visitAdminCustomers();
+        sleep(THINK_TIME);
+
+        visitAdminProducts();
         sleep(THINK_TIME);
 
         visitRevenueReport();
