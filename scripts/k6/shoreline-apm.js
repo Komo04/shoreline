@@ -143,6 +143,28 @@ function firstRegexMatch(response, regex) {
     return match ? match[1] : '';
 }
 
+function extractProductId(response) {
+    const value = firstRegexMatch(response, /name="produk_id"\s+value="(\d+)"/i);
+    return value ? Number(value) : 0;
+}
+
+function extractAvailableVariantId(response) {
+    const raw = firstRegexMatch(response, /const varians = (\[[\s\S]*?\]);/i);
+
+    if (!raw) {
+        return 0;
+    }
+
+    try {
+        const variants = JSON.parse(raw);
+        const available = variants.find((variant) => Number(variant.stok || 0) > 0);
+
+        return available ? Number(available.id || 0) : 0;
+    } catch (_error) {
+        return 0;
+    }
+}
+
 function assertOk(response, label) {
     check(response, {
         [`${label} status < 400`]: (r) => r.status < 400,
@@ -173,6 +195,46 @@ function visitProductDetail(productsResponse) {
     const res = http.get(url(detailPath), defaultParams('GET /produk/{produk}'));
     assertOk(res, 'detail produk');
     return { response: res, path: detailPath };
+}
+
+function addToCart(productDetailResponse) {
+    const csrf = extractCsrfToken(productDetailResponse);
+    const productId = extractProductId(productDetailResponse);
+    const variantId = extractAvailableVariantId(productDetailResponse);
+
+    check(productId, {
+        'produk id ditemukan di detail produk': (value) => value > 0,
+    });
+    check(variantId, {
+        'varian tersedia ditemukan di detail produk': (value) => value > 0,
+    });
+
+    if (!csrf || !productId || !variantId) {
+        return null;
+    }
+
+    const res = http.post(
+        url('/keranjang'),
+        {
+            _token: csrf,
+            produk_id: productId,
+            varian_id: variantId,
+            jumlah_produk: 1,
+        },
+        {
+            tags: { name: 'POST /keranjang' },
+            headers: {
+                Accept: 'text/html,application/xhtml+xml,application/json',
+            },
+            redirects: 10,
+        }
+    );
+
+    check(res, {
+        'tambah ke keranjang berhasil': (r) => r.status < 400 && !isLoginPage(r),
+    });
+
+    return res;
 }
 
 function login(email, password, label) {
@@ -278,10 +340,10 @@ function visitOrderDetail(ordersResponse) {
     return { response: res, path: detailPath };
 }
 
-function ensureCustomerSession() {
+function ensureCustomerSession(force = false) {
     const account = currentCustomerAccount();
 
-    if (customerSessionReady) {
+    if (customerSessionReady && !force) {
         return true;
     }
 
@@ -348,6 +410,8 @@ function visitRevenueReport() {
 }
 
 function userJourney() {
+    let productDetail = null;
+
     group('Public pages', function () {
         visitHome();
         sleep(THINK_TIME);
@@ -355,7 +419,7 @@ function userJourney() {
         const produk = visitProducts();
         sleep(THINK_TIME);
 
-        visitProductDetail(produk);
+        productDetail = visitProductDetail(produk);
         sleep(THINK_TIME);
     });
 
@@ -373,13 +437,32 @@ function userJourney() {
             return;
         }
 
-        visitCheckout();
+        if (productDetail?.response) {
+            addToCart(productDetail.response);
+            sleep(THINK_TIME);
+        }
+
+        let checkout = visitCheckout();
+        if (isLoginPage(checkout)) {
+            customerSessionReady = false;
+            if (!ensureCustomerSession(true)) {
+                return;
+            }
+            checkout = visitCheckout();
+        }
         sleep(THINK_TIME);
 
         hitShippingOptions();
         sleep(THINK_TIME);
 
-        const orders = visitOrders();
+        let orders = visitOrders();
+        if (isLoginPage(orders)) {
+            customerSessionReady = false;
+            if (!ensureCustomerSession(true)) {
+                return;
+            }
+            orders = visitOrders();
+        }
         sleep(THINK_TIME);
 
         const orderDetail = visitOrderDetail(orders);
