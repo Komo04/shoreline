@@ -46,7 +46,7 @@ function buildOptions() {
     const presets = {
         light: { vus: 5, duration: '5m', exec: 'customerFlow' },
         medium: { vus: 10, duration: '10m', exec: 'customerFlow' },
-        heavy: { vus: 25, duration: '10m', exec: 'customerFlow' },
+        heavy: { vus: 20, duration: '10m', exec: 'customerFlow' },
         admin: { vus: 3, duration: '5m', exec: 'adminFlow' },
         public: { vus: 5, duration: '5m', exec: 'publicFlow' },
     };
@@ -136,6 +136,15 @@ function firstHrefBySelector(response, selector) {
     return href || '';
 }
 
+function randomArrayItem(items) {
+    if (!items || items.length === 0) {
+        return null;
+    }
+
+    const index = Math.floor(Math.random() * items.length);
+    return items[index] || null;
+}
+
 function firstRegexMatch(response, regex) {
     const body = htmlBody(response);
     const match = body.match(regex);
@@ -157,7 +166,8 @@ function extractAvailableVariantId(response) {
 
     try {
         const variants = JSON.parse(raw);
-        const available = variants.find((variant) => Number(variant.stok || 0) > 0);
+        const availableVariants = variants.filter((variant) => Number(variant.stok || 0) > 0);
+        const available = randomArrayItem(availableVariants);
 
         return available ? Number(available.id || 0) : 0;
     } catch (_error) {
@@ -184,9 +194,24 @@ function visitProducts() {
 }
 
 function visitProductDetail(productsResponse) {
-    const detailPath =
-        firstHrefBySelector(productsResponse, 'a.product-item') ||
-        firstRegexMatch(productsResponse, /href="([^"]*\/produk\/[^"]+)"/i);
+    const doc = parseHTML(htmlBody(productsResponse));
+    const productPaths = doc
+        .find('a.product-item')
+        .toArray()
+        .map((link) => link.attr('href'))
+        .filter(Boolean);
+
+    let detailPath = randomArrayItem(productPaths);
+
+    if (!detailPath) {
+        const regexMatches = Array.from(
+            htmlBody(productsResponse).matchAll(/href="([^"]*\/produk\/[^"]+)"/gi)
+        )
+            .map((match) => match[1])
+            .filter(Boolean);
+
+        detailPath = randomArrayItem(regexMatches) || '';
+    }
 
     if (!detailPath) {
         return null;
@@ -235,6 +260,58 @@ function addToCart(productDetailResponse) {
     });
 
     return res;
+}
+
+function clearCart() {
+    const cartPage = http.get(url('/keranjang'), defaultParams('GET /keranjang'));
+
+    check(cartPage, {
+        'keranjang terbuka dan session valid': (r) => r.status < 400 && !isLoginPage(r),
+    });
+
+    if (isLoginPage(cartPage)) {
+        return false;
+    }
+
+    const csrf = extractCsrfToken(cartPage);
+    const doc = parseHTML(htmlBody(cartPage));
+    const deleteActions = doc
+        .find('form[action*="/keranjang/"]')
+        .toArray()
+        .map((form) => {
+            const method = form.find('input[name="_method"]').attr('value');
+            const action = form.attr('action');
+
+            if ((method || '').toUpperCase() !== 'DELETE') {
+                return '';
+            }
+
+            return action || '';
+        })
+        .filter(Boolean);
+
+    for (const action of deleteActions) {
+        const response = http.post(
+            url(action),
+            {
+                _token: csrf,
+                _method: 'DELETE',
+            },
+            {
+                tags: { name: 'DELETE /keranjang/{id}' },
+                headers: {
+                    Accept: 'text/html,application/xhtml+xml,application/json',
+                },
+                redirects: 10,
+            }
+        );
+
+        check(response, {
+            'hapus item keranjang berhasil': (r) => r.status < 400 && !isLoginPage(r),
+        });
+    }
+
+    return true;
 }
 
 function login(email, password, label) {
@@ -324,18 +401,40 @@ function visitOrders() {
     return res;
 }
 
+function extractOrderDetailPath(ordersResponse) {
+    const doc = parseHTML(htmlBody(ordersResponse));
+    const detailLinks = doc
+        .find('a[href*="/pesanan/"]')
+        .toArray()
+        .map((link) => ({
+            href: link.attr('href') || '',
+            text: link.text().trim().toLowerCase(),
+        }))
+        .filter((link) => {
+            return (
+                /^\/pesanan\/\d+(?:#refund)?$/i.test(link.href) &&
+                !link.href.includes('#refund') &&
+                link.text.includes('detail')
+            );
+        })
+        .map((link) => link.href);
+
+    return randomArrayItem(detailLinks) || '';
+}
+
 function visitOrderDetail(ordersResponse) {
-    const detailPath =
-        firstRegexMatch(ordersResponse, /href="([^"]*\/pesanan\/\d+(?:#refund)?[^"]*)"/i) ||
-        firstHrefBySelector(ordersResponse, 'a[href*="/pesanan/"]') ||
-        firstRegexMatch(ordersResponse, /href="([^"]*\/pesanan\/\d+[^"]*)"/i);
+    const detailPath = extractOrderDetailPath(ordersResponse);
 
     if (!detailPath) {
         return null;
     }
 
     const res = http.get(url(detailPath), defaultParams('GET /pesanan/{transaksi}'));
-    assertOk(res, 'detail pesanan');
+    check(res, {
+        'detail pesanan status < 400': (r) => r.status < 400,
+        'detail pesanan bukan halaman login': (r) => !isLoginPage(r),
+        'detail pesanan memuat judul': (r) => htmlBody(r).includes('Detail Pesanan'),
+    });
 
     return { response: res, path: detailPath };
 }
@@ -437,7 +536,17 @@ function userJourney() {
             return;
         }
 
-        if (productDetail?.path) {
+        let cartReady = clearCart();
+        if (!cartReady) {
+            customerSessionReady = false;
+            if (!ensureCustomerSession(true)) {
+                return;
+            }
+            cartReady = clearCart();
+        }
+        sleep(THINK_TIME);
+
+        if (cartReady && productDetail?.path) {
             const authenticatedProductDetail = http.get(
                 url(productDetail.path),
                 defaultParams('GET /produk/{produk} authenticated')

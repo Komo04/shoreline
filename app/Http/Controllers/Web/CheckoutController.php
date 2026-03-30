@@ -638,7 +638,12 @@ class CheckoutController extends Controller
             return collect([$directItem]);
         }
 
-        return Keranjang::with(['produk', 'varian'])
+        return Keranjang::query()
+            ->select(['id', 'user_id', 'produk_id', 'varian_id', 'jumlah_produk'])
+            ->with([
+                'produk:id,nama_produk,harga,gambar_produk',
+                'varian:id,produk_id,warna,ukuran,stok,gambar_varian,berat_gram',
+            ])
             ->where('user_id', $userId)
             ->get();
     }
@@ -660,7 +665,8 @@ class CheckoutController extends Controller
             return null;
         }
 
-        $varian = ProdukVarian::with('produk')
+        $varian = ProdukVarian::with('produk:id,nama_produk,harga,gambar_produk')
+            ->select(['id', 'produk_id', 'warna', 'ukuran', 'stok', 'gambar_varian', 'berat_gram'])
             ->where('id', $varianId)
             ->where('produk_id', $produkId)
             ->first();

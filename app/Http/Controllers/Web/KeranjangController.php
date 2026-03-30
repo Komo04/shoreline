@@ -35,7 +35,10 @@ class KeranjangController extends Controller
 
     public function index()
     {
-        $keranjangs = Keranjang::with(['produk', 'varian'])
+        $keranjangs = Keranjang::with([
+            'produk:id,nama_produk,harga,gambar_produk',
+            'varian:id,produk_id,warna,ukuran,stok,gambar_varian,berat_gram',
+        ])
             ->where('user_id', Auth::id())
             ->get();
 
@@ -47,11 +50,15 @@ class KeranjangController extends Controller
 
         // ✅ Ambil semua varian untuk produk yang ada di keranjang
         $produkIds = $keranjangs->pluck('produk_id')->unique()->values();
-        $varians = ProdukVarian::whereIn('produk_id', $produkIds)
-            ->orderBy('warna')
-            ->orderByRaw($this->ukuranOrderSql())
-            ->get()
-            ->groupBy('produk_id');
+        $varians = $produkIds->isEmpty()
+            ? collect()
+            : ProdukVarian::query()
+                ->select(['id', 'produk_id', 'warna', 'ukuran', 'stok', 'gambar_varian'])
+                ->whereIn('produk_id', $produkIds)
+                ->orderBy('warna')
+                ->orderByRaw($this->ukuranOrderSql())
+                ->get()
+                ->groupBy('produk_id');
 
         // nama variabel ini dipakai view
         $variansByProduk = $varians;

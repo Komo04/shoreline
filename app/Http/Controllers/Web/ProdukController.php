@@ -7,6 +7,7 @@ use App\Models\Kategori;
 use App\Models\ProdukVarian;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\Request;
 
 class ProdukController extends Controller
@@ -26,19 +27,42 @@ class ProdukController extends Controller
 
     public function index(Request $request)
     {
-        // ====== Data untuk filter UI ======
-        $kategoris = Kategori::orderBy('nama_kategori')->get();
+        $filterMeta = Cache::remember('produk:index:filter-meta', now()->addMinutes(10), function () {
+            return [
+                'kategoris' => Kategori::query()
+                    ->select(['id', 'nama_kategori'])
+                    ->orderBy('nama_kategori')
+                    ->get(),
+                'minPriceAll' => (float) Produk::min('harga'),
+                'maxPriceAll' => (float) Produk::max('harga'),
+                'colors' => ProdukVarian::query()
+                    ->select('warna')
+                    ->whereNotNull('warna')
+                    ->distinct()
+                    ->orderBy('warna')
+                    ->pluck('warna'),
+                'sizes' => ProdukVarian::query()
+                    ->select('ukuran')
+                    ->whereNotNull('ukuran')
+                    ->distinct()
+                    ->orderByRaw($this->ukuranOrderSql())
+                    ->pluck('ukuran'),
+            ];
+        });
 
-        $minPriceAll = (float) Produk::min('harga');
-        $maxPriceAll = (float) Produk::max('harga');
-
-        // ambil warna & ukuran dari varian (yang ada di DB)
-        $colors = ProdukVarian::select('warna')->distinct()->orderBy('warna')->pluck('warna');
-        $sizes  = ProdukVarian::select('ukuran')->distinct()->orderByRaw($this->ukuranOrderSql())->pluck('ukuran');
+        $kategoris = $filterMeta['kategoris'];
+        $minPriceAll = $filterMeta['minPriceAll'];
+        $maxPriceAll = $filterMeta['maxPriceAll'];
+        $colors = $filterMeta['colors'];
+        $sizes = $filterMeta['sizes'];
 
         // ====== Query Produk ======
         $query = Produk::query()
-            ->with(['varians', 'kategori'])
+            ->select(['id', 'nama_produk', 'harga', 'kategori_id', 'gambar_produk', 'created_at'])
+            ->with([
+                'varians:id,produk_id,warna,gambar_varian,stok',
+                'kategori:id,nama_kategori',
+            ])
             ->withAvg('ulasans', 'rating')
             ->withCount('ulasans');
 
@@ -115,9 +139,8 @@ class ProdukController extends Controller
     {
         // load relasi yang dipakai di view
         $produk->load([
-            'varians',
-
-            'kategori',
+            'varians:id,produk_id,warna,ukuran,stok,gambar_varian,berat_gram',
+            'kategori:id,nama_kategori',
             'ulasans.user', // supaya nama user ulasan tampil & tidak N+1
         ]);
 
