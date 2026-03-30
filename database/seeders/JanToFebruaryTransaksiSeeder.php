@@ -12,9 +12,11 @@ use Database\Seeders\Concerns\SeedsDummyTransaksiData;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
-class JanToMarchTransaksiSeeder extends Seeder
+class JanToFebruaryTransaksiSeeder extends Seeder
 {
     use SeedsDummyTransaksiData;
+
+    private const TARGET_TRANSAKSI = 100;
 
     private const WILAYAH = [
         [
@@ -93,7 +95,7 @@ class JanToMarchTransaksiSeeder extends Seeder
     {
         $faker = fake('id_ID');
         $startDate = Carbon::create(2026, 1, 1, 0, 0, 0);
-        $endDate = Carbon::create(2026, 3, 31, 23, 59, 59);
+        $endDate = Carbon::create(2026, 2, 28, 23, 59, 59);
         $varians = ProdukVarian::with('produk')->whereHas('produk')->get();
 
         $customers = User::factory()
@@ -123,7 +125,7 @@ class JanToMarchTransaksiSeeder extends Seeder
             return [$user->id => $alamat];
         });
 
-        for ($i = 1; $i <= 100; $i++) {
+        for ($i = 0; $i < self::TARGET_TRANSAKSI; $i++) {
             /** @var User $user */
             $user = $customers->random();
             /** @var Alamat $alamat */
