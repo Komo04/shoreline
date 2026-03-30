@@ -38,7 +38,7 @@ trait SeedsDummyTransaksiData
             'jne' => ['ekspedisi' => 'JNE', 'kurir_kode' => 'jne'],
             'jnt', 'j&t', 'j&t express' => ['ekspedisi' => 'JNT', 'kurir_kode' => 'jnt'],
             'pos', 'pos indonesia', 'posindonesia' => ['ekspedisi' => 'POS', 'kurir_kode' => 'pos'],
-            default => fake()->randomElement($this->supportedCouriers()),
+            default => \fake()->randomElement($this->supportedCouriers()),
         };
     }
 
@@ -69,7 +69,7 @@ trait SeedsDummyTransaksiData
             throw new \RuntimeException('Seeder transaksi membutuhkan minimal satu produk varian.');
         }
 
-        $itemCount = min($available->count(), fake()->numberBetween(1, 3));
+        $itemCount = min($available->count(), \fake()->numberBetween(1, 3));
         $selected = $available->shuffle()->take($itemCount)->values();
 
         $items = [];
@@ -78,7 +78,7 @@ trait SeedsDummyTransaksiData
         foreach ($selected as $varian) {
             $hargaSatuan = (int) round((float) $varian->produk->harga);
             $maxQty = max(1, min((int) $varian->stok, 3));
-            $qty = fake()->numberBetween(1, $maxQty);
+            $qty = \fake()->numberBetween(1, $maxQty);
             $itemSubtotal = $hargaSatuan * $qty;
 
             $items[] = [
