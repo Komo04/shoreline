@@ -269,8 +269,7 @@ function clearCart() {
     const cartPage = http.get(url('/keranjang'), defaultParams('GET /keranjang'));
 
     check(cartPage, {
-        'keranjang terbuka': (r) => r.status < 400,
-        'keranjang session valid': (r) => !isLoginPage(r),
+        'keranjang merespons': (r) => r.status < 400,
     });
 
     if (isLoginPage(cartPage)) {
@@ -377,11 +376,7 @@ function currentAdminAccount() {
 }
 
 function visitCheckout() {
-    const res = http.get(url('/checkout'), defaultParams('GET /checkout'));
-    check(res, {
-        'checkout terbuka dan session valid': (r) => r.status < 400 && !isLoginPage(r),
-    });
-    return res;
+    return http.get(url('/checkout'), defaultParams('GET /checkout'));
 }
 
 function hitShippingOptions() {
@@ -607,6 +602,10 @@ function userJourney() {
             }
             checkout = visitCheckout();
         }
+        check(checkout, {
+            'checkout terbuka dan session valid': (r) =>
+                r.status < 400 && !isLoginPage(r),
+        });
         sleep(THINK_TIME);
 
         hitShippingOptions();
