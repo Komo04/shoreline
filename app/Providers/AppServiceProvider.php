@@ -45,6 +45,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        if ($this->app->environment('production')) {
+        URL::forceScheme('https');
+    }
         ProdukVarian::observe(ProdukVarianObserver::class);
 
         // Cart count hanya dibutuhkan di navbar web, jangan jalankan query ini untuk semua view.
