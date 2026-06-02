@@ -9,6 +9,7 @@ use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\View;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -44,28 +45,28 @@ class AppServiceProvider extends ServiceProvider
      * Bootstrap any application services.
      */
     public function boot(): void
-    {
-        if ($this->app->environment('production')) {
+{
+    if ($this->app->environment('production')) {
         URL::forceScheme('https');
     }
-        ProdukVarian::observe(ProdukVarianObserver::class);
 
-        // Cart count hanya dibutuhkan di navbar web, jangan jalankan query ini untuk semua view.
-        View::composer('components.web.navbar', function ($view): void {
-            $userId = Auth::id();
+    ProdukVarian::observe(ProdukVarianObserver::class);
 
-            if (! $userId) {
-                $view->with('cartCount', 0);
-                return;
-            }
+    View::composer('components.web.navbar', function ($view): void {
+        $userId = Auth::id();
 
-            $cartCount = Cache::remember(
-                "cart_count:user:{$userId}",
-                now()->addSeconds(30),
-                fn () => (int) Keranjang::where('user_id', $userId)->sum('jumlah_produk')
-            );
+        if (! $userId) {
+            $view->with('cartCount', 0);
+            return;
+        }
 
-            $view->with('cartCount', $cartCount);
-        });
-    }
+        $cartCount = Cache::remember(
+            "cart_count:user:{$userId}",
+            now()->addSeconds(30),
+            fn () => (int) Keranjang::where('user_id', $userId)->sum('jumlah_produk')
+        );
+
+        $view->with('cartCount', $cartCount);
+    });
+}
 }
